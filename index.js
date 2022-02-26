@@ -57,7 +57,7 @@ app.post('/forward', async (req, res) => {
 
   // connect to the db
   const db = await open({
-    filename: dbLocation,
+    filename: __dirname + '/' + dbLocation,
     driver: sqlite3.Database
   })
 
