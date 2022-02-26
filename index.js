@@ -16,7 +16,7 @@ const lnUrlBaseUri = process.env.lnUrlBaseUri
 const btcpayApiKey = process.env.btcpayApiKey
 const lndTlsCert = process.env.lndTlsCert
 const lndMacaroon = process.env.lndMacaroon
-const lndIpAndPort = process.env.lndIpAddress
+const lndIpAndPort = process.env.lndIpAndPort
 
 const app = express()
 
@@ -69,7 +69,7 @@ app.post('/forward', async (req, res) => {
     const originalExecution = await getExecution(db, req.body.originalDeliveryId)
 
     // if the original execution was indeed processed, we should exit now and not double send money
-    if(originalExecution.isProcessed) {
+    if(originalExecution && originalExecution.isProcessed) {
       res.sendStatus(200)
       return
     }
@@ -283,8 +283,8 @@ const getStore = async (db, storeId) => {
 const getExecution = async (db, deliveryId) => {
   try {
     return await db.get(
-      "SELECT * FROM executions WHERE deliveryId = ?",
-      [deliveryId]
+      "SELECT * FROM executions WHERE deliveryId = ? OR originalDeliveryId = ?",
+      [deliveryId, deliveryId]
     )
   } catch {
     return false
@@ -294,7 +294,7 @@ const getExecution = async (db, deliveryId) => {
 const addExecution = async (db, obj) => {
   try {
     return await db.run(
-      "INSERT INTO executions (manuallyMarked, deliveryId, webhookId, originalDeliveryId, isRedelivery, type, timestamp, storeId, invoiceId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+      "INSERT INTO executions (deliveryId, webhookId, originalDeliveryId, isRedelivery, type, timestamp, manuallyMarked, storeId, invoiceId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
       Object.values(obj)
     )
   } catch {
