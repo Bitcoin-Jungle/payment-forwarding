@@ -57,7 +57,7 @@ app.post('/forward', async (req, res) => {
 
   // connect to the db
   const db = await open({
-    filename: __dirname + '/' + dbLocation,
+    filename: dbLocation,
     driver: sqlite3.Database
   })
 
@@ -275,8 +275,7 @@ const getStore = async (db, storeId) => {
       "SELECT * FROM stores WHERE storeId = ?", 
       [storeId]
     )
-  } catch (err) {
-    console.log('query error!!!', err)
+  } catch {
     return false
   }
 }
