@@ -130,7 +130,7 @@ app.post('/forward', async (req, res) => {
   let milliSatAmount = btcTotal * 100000000 * 1000
 
   // deduct the store's fee from the total we will pay out
-  milliSatAmount = milliSatAmount * store.rate
+  milliSatAmount = Math.round(milliSatAmount * store.rate)
 
   // the minimum is 1 satoshi, if less than that, round up to 1
   if(milliSatAmount < 1000) {
