@@ -180,7 +180,7 @@ app.post('/forward', async (req, res) => {
   
   const lnInvoice = await payLnInvoice(lnd, lnUrlWithAmount.pr)
 
-  if(lnInvoice) {
+  if(lnInvoice && lnInvoice.is_confirmed) {
     // we've now forwarded the payment, mark it as such in the db
     await setExecutionProcessed(db, req.body.deliveryId)
 
@@ -189,7 +189,11 @@ app.post('/forward', async (req, res) => {
       await setExecutionProcessed(db, req.body.originalDeliveryId)
     }
 
+    // store a record of the payment in the db
+    await addPayment(db, lnInvoice.id, req.body.deliveryId, req.body.timestamp)
+
     console.log('payment succeded, marked as processed, all done')
+    
     // we're done!
     res.sendStatus(200)
     return
@@ -329,6 +333,21 @@ const setExecutionProcessed = async (db, deliveryId) => {
     return await db.run(
       "UPDATE executions SET isProcessed = true WHERE deliveryId = ? OR originalDeliveryId = ?",
       [deliveryId, deliveryId]
+    )
+  } catch {
+    return false
+  }
+}
+
+const addPayment = async(db, paymentId, deliveryId, timestamp) => {
+  try {
+    return await db.run(
+      "INSERT INTO payments (paymentId, deliveryId, timestamp) VALUES (?, ?, ?)", 
+      [
+        paymentId,
+        deliveryId,
+        timestamp,
+      ]
     )
   } catch {
     return false

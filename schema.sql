@@ -20,3 +20,10 @@ CREATE TABLE executions (
 	invoiceId TEXT,
 	isProcessed BOOLEAN DEFAULT FALSE
 );
+
+CREATE TABLE payments (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	paymentId TEXT,
+	deliveryId TEXT,
+	timestamp INT
+);
