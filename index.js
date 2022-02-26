@@ -132,6 +132,9 @@ app.post('/forward', async (req, res) => {
   // deduct the store's fee from the total we will pay out
   milliSatAmount = Math.round(milliSatAmount * store.rate)
 
+  // round to the nearest full mill-satoshi
+  milliSatAmount = Math.round(milliSatAmount / 1000) * 1000
+
   // the minimum is 1 satoshi, if less than that, round up to 1
   if(milliSatAmount < 1000) {
     milliSatAmount = 1000
