@@ -122,7 +122,9 @@ app.post('/forward', async (req, res) => {
   payments.forEach(el => {
     // we only deal with BTC in this script
     if(el.cryptoCode == "BTC") {
-      btcTotal += parseFloat(el.totalPaid)
+      el.payments.forEach(el2 => {
+        btcTotal += parseFloat(el2.value)
+      })
     }
   })
 
@@ -193,7 +195,7 @@ app.post('/forward', async (req, res) => {
     await addPayment(db, lnInvoice.id, req.body.deliveryId, req.body.timestamp)
 
     console.log('payment succeded, marked as processed, all done')
-    
+
     // we're done!
     res.sendStatus(200)
     return
