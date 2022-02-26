@@ -196,7 +196,7 @@ app.post('/forward', async (req, res) => {
     }
 
     // store a record of the payment in the db
-    await addPayment(db, lnInvoice.id, req.body.deliveryId, req.body.timestamp)
+    await addPayment(db, lnInvoice.id, req.body.deliveryId, req.body.timestamp, feeRetainedMilliSatoshis)
 
     console.log('payment succeded, marked as processed, all done')
 
