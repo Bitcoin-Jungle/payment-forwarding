@@ -142,7 +142,11 @@ app.post('/forward', async (req, res) => {
     milliSatAmount = 1000
   }
 
-  console.log('milliSatAmount', milliSatAmount)
+  console.log('milliSatAmount to pay out', milliSatAmount)
+
+  const feeRetainedMilliSatoshis = (btcTotal * 100000000 * 1000) - milliSatAmount
+
+  console.log('fee we retain', feeRetainedMilliSatoshis)
 
   // hit the LNURL endpoint for Bitcoin Jungle
   const lnUrl = await fetchLnUrl(store.bitcoinJungleUsername)
@@ -341,14 +345,15 @@ const setExecutionProcessed = async (db, deliveryId) => {
   }
 }
 
-const addPayment = async(db, paymentId, deliveryId, timestamp) => {
+const addPayment = async(db, paymentId, deliveryId, timestamp, feeRetainedMilliSatoshis) => {
   try {
     return await db.run(
-      "INSERT INTO payments (paymentId, deliveryId, timestamp) VALUES (?, ?, ?)", 
+      "INSERT INTO payments (paymentId, deliveryId, timestamp, feeRetained) VALUES (?, ?, ?, ?)", 
       [
         paymentId,
         deliveryId,
         timestamp,
+        feeRetainedMilliSatoshis,
       ]
     )
   } catch {

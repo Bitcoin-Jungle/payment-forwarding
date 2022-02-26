@@ -25,5 +25,6 @@ CREATE TABLE payments (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	paymentId TEXT,
 	deliveryId TEXT,
-	timestamp INT
+	timestamp INT,
+	feeRetained TEXT
 );
