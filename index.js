@@ -295,7 +295,7 @@ const getStore = async (db, storeId) => {
 const getExecution = async (db, deliveryId) => {
   try {
     return await db.get(
-      "SELECT * FROM executions WHERE deliveryId = ? OR originalDeliveryId = ?",
+      "SELECT * FROM executions WHERE deliveryId = ? OR originalDeliveryId = ? ORDER BY id asc LIMIT 1",
       [deliveryId, deliveryId]
     )
   } catch {
@@ -327,8 +327,8 @@ const addExecution = async (db, obj) => {
 const setExecutionProcessed = async (db, deliveryId) => {
   try {
     return await db.run(
-      "UPDATE executions SET isProcessed = true WHERE deliveryId = ?",
-      [deliveryId]
+      "UPDATE executions SET isProcessed = true WHERE deliveryId = ? OR originalDeliveryId = ?",
+      [deliveryId, deliveryId]
     )
   } catch {
     return false
