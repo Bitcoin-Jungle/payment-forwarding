@@ -39,6 +39,7 @@ app.use((req, res, next) => {
   const sig  = req.headers['btcpay-sig'].replace('sha256=', '')
 
   if(test !== sig) {
+    console.log('signature failed')
     res.sendStatus(401)
   } else {
     next()
@@ -51,6 +52,7 @@ app.post('/forward', async (req, res) => {
 
   // we only care about settled invoices
   if(req.body.type !== "InvoiceSettled") {
+    console.log('not invoice settled type')
     res.sendStatus(200)
     return
   }
@@ -70,6 +72,7 @@ app.post('/forward', async (req, res) => {
 
     // if the original execution was indeed processed, we should exit now and not double send money
     if(originalExecution && originalExecution.isProcessed) {
+      console.log('original execution already processed')
       res.sendStatus(200)
       return
     }
@@ -80,6 +83,7 @@ app.post('/forward', async (req, res) => {
     // mark the execution as processed so we don't try it again
     await setExecutionProcessed(db, req.body.deliveryId)
     
+    console.log('is manually marked')
     res.sendStatus(200)
     return
   }
@@ -182,12 +186,14 @@ app.post('/forward', async (req, res) => {
       await setExecutionProcessed(db, req.body.originalDeliveryId)
     }
 
+    console.log('payment succeded, marked as processed, all done')
     // we're done!
     res.sendStatus(200)
     return
   }
 
   // the execution didn't process fully :(
+  console.log('error occurred with lnInvoice')
   res.sendStatus(404)
   return
 })
@@ -225,6 +231,7 @@ const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount) => {
     }
     return await response.json()
   } catch (err) {
+    console.log('fetchLnUrl fail', err)
     return false
   }
 }
@@ -245,6 +252,7 @@ const fetchInvoice = async (storeId, invoiceId) => {
     }
     return await response.json()
   } catch (err) {
+    console.log('fetchInvoice fail', err)
     return false
   }
 }
@@ -265,6 +273,7 @@ const fetchInvoicePayments = async (storeId, invoiceId) => {
     }
     return await response.json()
   } catch (err) {
+    console.log('fetchInvoicePayments fail', err)
     return false
   }
 }
