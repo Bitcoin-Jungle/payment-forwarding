@@ -221,7 +221,7 @@ const payLnInvoice = async (lnd, invoice) => {
 
     console.log('lnUrlPayment', lnUrlPayment)
 
-    return true
+    return lnUrlPayment
   } catch (err) {
     console.log('lnd payment error', err)
 
