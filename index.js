@@ -307,7 +307,17 @@ const addExecution = async (db, obj) => {
   try {
     return await db.run(
       "INSERT INTO executions (deliveryId, webhookId, originalDeliveryId, isRedelivery, type, timestamp, manuallyMarked, storeId, invoiceId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-      Object.values(obj)
+      [
+        obj.deliveryId,
+        obj.webhookId,
+        obj.originalDeliveryId,
+        obj.isRedelivery,
+        obj.type,
+        obj.timestamp,
+        obj.manuallyMarked,
+        obj.storeId,
+        obj.invoiceId,
+      ]
     )
   } catch {
     return false
