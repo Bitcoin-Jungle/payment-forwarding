@@ -275,7 +275,8 @@ const getStore = async (db, storeId) => {
       "SELECT * FROM stores WHERE storeId = ?", 
       [storeId]
     )
-  } catch {
+  } catch (err) {
+    console.log('query error!!!', err)
     return false
   }
 }
