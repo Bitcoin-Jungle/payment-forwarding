@@ -63,25 +63,41 @@ app.post('/forward', async (req, res) => {
     driver: sqlite3.Database
   })
 
-  // save the exeuction to the db
-  const execution = await addExecution(db, req.body)
+  // check to see if this invoice already exists in the db
+  const invoiceExists = await getInvoice(db, req.body.storeId, req.body.invoiceId)
 
-  // if this is a webhook redelivery, we want to see if the original exeuction was successfully processed or not
-  if(req.body.isRedelivery) {
-    const originalExecution = await getExecution(db, req.body.originalDeliveryId)
+  // if the invoice does exist in the db, we need to do some additional checks
+  if(invoiceExists) {
 
-    // if the original execution was indeed processed, we should exit now and not double send money
-    if(originalExecution && originalExecution.isProcessed) {
-      console.log('original execution already processed')
+    // if the invoice is currently processing, we don't want a race condition
+    if(invoiceExists.isProcessing) {
+      console.log('invoice is currently processing')
+      res.sendStatus(404)
+      return
+    }
+
+    // if the invoice has already been processed, we don't have anything else to do
+    if(invoiceExists.isProcessed) {
+      console.log('invoice is already processed')
       res.sendStatus(200)
       return
     }
   }
 
-  // if manually marked, don't send money, bc we didn't really get any money
+  // save the exeuction to the db
+  const saveInvoice = await addInvoice(db, req.body.storeId, req.body.invoiceId, true, false)
+
+  if(!saveInvoice) {
+    console.log('unexpected error saving invoice to db')
+    res.sendStatus(404)
+    return
+  }
+
+  // if the invoice was manually marked, don't send money, bc we didn't really get any money
   if(req.body.manuallyMarked) {
-    // mark the execution as processed so we don't try it again
-    await setExecutionProcessed(db, req.body.deliveryId)
+
+    // mark the invoice as processed so we don't try it again
+    await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
     
     console.log('is manually marked')
     res.sendStatus(200)
@@ -144,7 +160,7 @@ app.post('/forward', async (req, res) => {
 
   console.log('milliSatAmount to pay out', milliSatAmount)
 
-  const feeRetainedMilliSatoshis = (btcTotal * 100000000 * 1000) - milliSatAmount
+  const feeRetainedMilliSatoshis = Math.round((btcTotal * 100000000 * 1000) - milliSatAmount)
 
   console.log('fee we retain', feeRetainedMilliSatoshis)
 
@@ -188,15 +204,10 @@ app.post('/forward', async (req, res) => {
 
   if(lnInvoice && lnInvoice.is_confirmed) {
     // we've now forwarded the payment, mark it as such in the db
-    await setExecutionProcessed(db, req.body.deliveryId)
-
-    // if this is a redelivery, we also want to mark the original delivery as processed
-    if(req.body.isRedelivery) {
-      await setExecutionProcessed(db, req.body.originalDeliveryId)
-    }
+    await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
 
     // store a record of the payment in the db
-    await addPayment(db, lnInvoice.id, req.body.deliveryId, req.body.timestamp, feeRetainedMilliSatoshis)
+    await addPayment(db, lnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
 
     console.log('payment succeded, marked as processed, all done')
 
@@ -205,7 +216,7 @@ app.post('/forward', async (req, res) => {
     return
   }
 
-  // the execution didn't process fully :(
+  // the invoice didn't process fully :(
   console.log('error occurred with lnInvoice')
   res.sendStatus(404)
   return
@@ -302,31 +313,26 @@ const getStore = async (db, storeId) => {
   }
 }
 
-const getExecution = async (db, deliveryId) => {
+const getInvoice = async (db, storeId, invoiceId) => {
   try {
     return await db.get(
-      "SELECT * FROM executions WHERE deliveryId = ? OR originalDeliveryId = ? ORDER BY id asc LIMIT 1",
-      [deliveryId, deliveryId]
+      "SELECT * FROM invoices WHERE storeId = ? AND invoiceId = ?",
+      [storeId, invoiceId]
     )
   } catch {
     return false
   }
 }
 
-const addExecution = async (db, obj) => {
+const addInvoice = async (db, storeId, invoiceId, isProcessing, isProcessed) => {
   try {
     return await db.run(
-      "INSERT INTO executions (deliveryId, webhookId, originalDeliveryId, isRedelivery, type, timestamp, manuallyMarked, storeId, invoiceId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+      "INSERT INTO invoices (storeId, invoiceId, isProcessing, isProcessed) VALUES (?, ?, ?, ?)", 
       [
-        obj.deliveryId,
-        obj.webhookId,
-        obj.originalDeliveryId,
-        obj.isRedelivery,
-        obj.type,
-        obj.timestamp,
-        obj.manuallyMarked,
-        obj.storeId,
-        obj.invoiceId,
+        storeId,
+        invoiceId,
+        isProcessing,
+        isProcessed,
       ]
     )
   } catch {
@@ -334,24 +340,28 @@ const addExecution = async (db, obj) => {
   }
 }
 
-const setExecutionProcessed = async (db, deliveryId) => {
+const setInvoiceProcessed = async (db, storeId, invoiceId) => {
   try {
     return await db.run(
-      "UPDATE executions SET isProcessed = true WHERE deliveryId = ? OR originalDeliveryId = ?",
-      [deliveryId, deliveryId]
+      "UPDATE invoices SET isProcessing = false, isProcessed = true WHERE storeId = ? AND invoiceId = ?",
+      [
+        storeId,
+        invoiceId,
+      ]
     )
   } catch {
     return false
   }
 }
 
-const addPayment = async(db, paymentId, deliveryId, timestamp, feeRetainedMilliSatoshis) => {
+const addPayment = async(db, paymentId, storeId, invoiceId, timestamp, feeRetainedMilliSatoshis) => {
   try {
     return await db.run(
-      "INSERT INTO payments (paymentId, deliveryId, timestamp, feeRetained) VALUES (?, ?, ?, ?)", 
+      "INSERT INTO payments (paymentId, storeId, invoiceId, timestamp, feeRetained) VALUES (?, ?, ?, ?, ?)", 
       [
         paymentId,
-        deliveryId,
+        storeId,
+        invoiceId,
         timestamp,
         feeRetainedMilliSatoshis,
       ]

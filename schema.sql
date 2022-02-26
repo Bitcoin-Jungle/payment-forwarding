@@ -7,24 +7,19 @@ CREATE TABLE stores (
 	bitcoinJungleUsername TEXT
 );
 
-CREATE TABLE executions (
+CREATE TABLE invoices (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	manuallyMarked BOOLEAN,
-	deliveryId TEXT,
-	webhookId TEXT,
-	originalDeliveryId TEXT,
-	isRedelivery TEXT,
-	type TEXT,
-	timestamp INT,
-	storeId TEXT,
-	invoiceId TEXT,
+	storeId TEXT, 
+	invoiceId TEXT, 
+	isProcessing BOOLEAN DEFAULT FALSE, 
 	isProcessed BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE payments (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	paymentId TEXT,
-	deliveryId TEXT,
+	storeId TEXT,
+	invoiceId TEXT,
 	timestamp INT,
 	feeRetained TEXT
 );
