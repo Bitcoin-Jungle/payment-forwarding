@@ -222,6 +222,57 @@ app.post('/forward', async (req, res) => {
   return
 })
 
+app.post('/beds24', async (req, res) => {
+  console.log(req.body)  
+
+  // we only care about settled invoices
+  if(req.body.type !== "InvoiceSettled") {
+    console.log('not invoice settled type')
+    res.sendStatus(200)
+    return
+  }
+
+  // fetch invoice details from btcpayserver
+  const invoice = await fetchInvoice(req.body.storeId, req.body.invoiceId)
+
+  if(!invoice) {
+    console.log('no invoice')
+    res.sendStatus(404)
+    return
+  }
+
+  // we only care about settled invoices
+  if(invoice.status !== "Settled") {
+    console.log('invoice not settled')
+    res.sendStatus(200)
+    return
+  }
+
+  if(!invoice.metadata || !invoice.metadata.orderId) {
+    console.log('no orderId')
+    res.sendStatus(200)
+    return
+  }
+
+  console.log('invoice', invoice)
+
+  const params = new URLSearchParams();
+  params.append('key', webhookSecret);
+  params.append('bookid', invoice.metadata.orderId)
+  params.append('amount', invoice.amount)
+  params.append('description', 'BTCPayServer Payment Invoice ID' + invoice.id)
+  params.append('payment_status', 'Received')
+  params.append('txnid', invoice.id)
+
+  const response = await fetch('https://api.beds24.com/custompaymentgateway/notify.php', {method: 'POST', body: params});
+
+  console.log(response);
+
+  // we're done!
+  res.sendStatus(200)
+  return
+})
+
 app.listen(port, () => {
   console.log(`Example app listening at http://localhost:${port}`)
 })
