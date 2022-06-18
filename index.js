@@ -474,7 +474,7 @@ const addPayment = async(db, paymentId, storeId, invoiceId, timestamp, feeRetain
 const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
   try {
     return await db.run(
-      "INSERT INTO payments (storeId, rate, bitcoinJungleUsername) VALUES (?, ?, ?)", 
+      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername) VALUES (?, ?, ?)", 
       [
         storeId,
         rate,
