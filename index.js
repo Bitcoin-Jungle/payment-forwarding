@@ -27,7 +27,7 @@ const db = await open({
   filename: dbLocation,
   driver: sqlite3.Database
 })
-  
+
 const app = express()
 
 const {lnd} = authenticatedLndGrpc({
@@ -312,6 +312,7 @@ app.post('/addStore', async (req, res) => {
   const newStore = await addStore(db, storeId, rate, bitcoinJungleUsername)
 
   if(!newStore) {
+    console.log('db error', newStore)
     res.status(500).send({success: false, error: true, message: "error writing to db"})
     return
   }
@@ -480,7 +481,8 @@ const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
         bitcoinJungleUsername
       ]
     )
-  } catch {
+  } catch(err) {
+    console.log(err)
     return false
   }
 }
