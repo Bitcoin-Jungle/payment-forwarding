@@ -318,7 +318,7 @@ app.post('/addStore', async (req, res) => {
   }
 
   // we're done!
-  res.sendStatus(200)
+  res.status(200).send({success: true, error: false, message: "OK"})
   return
 })
 
