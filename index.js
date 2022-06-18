@@ -323,7 +323,7 @@ app.post('/addStore', async (req, res) => {
 })
 
 app.get('/addStore', (req, res) => {
-  res.sendFile('newStore/index.html', {root: '.'})
+  res.sendFile('newStore/index.html', {root: '/home/ubuntu/apps/payment-forwarding'})
 })
 
 app.listen(port, () => {
