@@ -273,6 +273,45 @@ app.post('/beds24', async (req, res) => {
   return
 })
 
+app.post('/addStore', async (req, res) => {
+  const storeId = req.body.storeId
+  const rate    = req.body.rate
+  const bitcoinJungleUsername = req.body.bitcoinJungleUsername
+
+  if(!storeId) {
+    res.status(400).send({success: false, error: true, message: "storeId is required"})
+    return
+  }
+
+  if(!rate) {
+    res.status(400).send({success: false, error: true, message: "rate is required"})
+    return
+  }
+
+  if(!bitcoinJungleUsername) {
+    res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
+    return
+  }
+
+  const storeExists = await getStore(db, storeId)
+
+  if(storeExists) {
+    res.status(400).send({success: false, error: true, message: "storeId already exists"})
+    return
+  }
+
+  const newStore = await addStore(db, storeId, rate, bitcoinJungleUsername)
+
+  if(!newStore) {
+    res.status(500).send({success: false, error: true, message: "error writing to db"})
+    return
+  }
+
+  // we're done!
+  res.sendStatus(200)
+  return
+})
+
 app.listen(port, () => {
   console.log(`Example app listening at http://localhost:${port}`)
 })
@@ -415,6 +454,21 @@ const addPayment = async(db, paymentId, storeId, invoiceId, timestamp, feeRetain
         invoiceId,
         timestamp,
         feeRetainedMilliSatoshis,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
+  try {
+    return await db.run(
+      "INSERT INTO payments (storeId, rate, bitcoinJungleUsername) VALUES (?, ?, ?)", 
+      [
+        storeId,
+        rate,
+        bitcoinJungleUsername
       ]
     )
   } catch {
