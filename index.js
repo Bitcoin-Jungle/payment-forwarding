@@ -22,6 +22,12 @@ const noAuthPaths = [
   '/addStore',
 ]
 
+// connect to the db
+const db = await open({
+  filename: dbLocation,
+  driver: sqlite3.Database
+})
+  
 const app = express()
 
 const {lnd} = authenticatedLndGrpc({
@@ -65,12 +71,6 @@ app.post('/forward', async (req, res) => {
     res.sendStatus(200)
     return
   }
-
-  // connect to the db
-  const db = await open({
-    filename: dbLocation,
-    driver: sqlite3.Database
-  })
 
   // check to see if this invoice already exists in the db
   const invoiceExists = await getInvoice(db, req.body.storeId, req.body.invoiceId)
