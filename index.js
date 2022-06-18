@@ -323,7 +323,7 @@ app.post('/addStore', async (req, res) => {
 })
 
 app.get('/addStore', (req, res) => {
-  res.sendFile(`${__dirname}/newStore/index.html`);
+  res.sendFile('newStore/index.html', {root: '.'})
 })
 
 app.listen(port, () => {
