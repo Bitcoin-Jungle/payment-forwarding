@@ -22,6 +22,7 @@ const onChainZpub = process.env.onChainZpub
 const exchangeRateApiKey = process.env.exchangeRateApiKey
 const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 const basePath = process.env.basePath
+const defaultLogoUri = process.env.defaultLogoUri
 
 const noAuthPaths = [
   '/addStore',
@@ -298,8 +299,8 @@ app.post('/addStore', async (req, res) => {
 
   const paymentTolerance = 1
   const defaultPaymentMethod = "BTC_LightningNetwork"
-  const customLogo = "https://storage.googleapis.com/bitcoin-jungle-branding/logo/web/logo-web-white-bg.png"
-  const webhookUrl = "https://btcpayserver.bitcoinjungle.app/forward"
+  const customLogo = defaultLogoUri
+  const webhookUrl = btcpayBaseUri + "forward"
 
   if(!apiKey) {
     res.status(400).send({success: false, error: true, message: "apiKey is required"})
