@@ -457,7 +457,7 @@ app.post('/addStore', async (req, res) => {
   const btcPayServerApp = await createBtcPayServerApp(btcPayServerDb, btcPayServerAppData)
 
   // we're done!
-  res.status(200).send({success: true, error: false, message: "OK"})
+  res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerAppData.Id})
   return
 })
 

@@ -93,8 +93,12 @@
 						return
 					}
 
-					alert("Store saved successfully")
+					const url = "https://btcpayserver.bitcoinjungle.app/apps/" + data.btcPayServerAppId + "/pos"
+
+					alert("Store saved successfully, Point of Sale URL is: " + url)
 					formEl.reset()
+
+					window.open(url, '_blank')
 				})
 				.catch((err) => {
 					alert(err)
