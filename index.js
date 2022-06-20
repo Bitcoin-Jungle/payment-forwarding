@@ -289,6 +289,7 @@ app.post('/beds24', async (req, res) => {
 })
 
 app.post('/addStore', async (req, res) => {
+  // input vars
   const apiKey  = req.body.apiKey
   const storeName = req.body.storeName
   const storeOwnerEmail = req.body.storeOwnerEmail
@@ -297,11 +298,13 @@ app.post('/addStore', async (req, res) => {
   const rate    = req.body.rate
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
 
+  // these are needed but not user editable inputs
   const paymentTolerance = 1
   const defaultPaymentMethod = "BTC_LightningNetwork"
   const customLogo = defaultLogoUri
   const webhookUrl = btcpayBaseUri + "forward"
 
+  // do the validation
   if(!apiKey) {
     res.status(400).send({success: false, error: true, message: "apiKey is required"})
     return
@@ -337,12 +340,13 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
-  // connect to the db
+  // connect to the btcpayserver db
   const btcPayServerDb = await open({
     filename: btcPayServerDbLocation,
     driver: sqlite3.Database
   })
 
+  // create store via api
   const store = await fetchCreateStore(apiKey, {
     storeName,
     storeOwnerEmail,
@@ -358,6 +362,7 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  // create user via api
   const user = await fetchCreateUser(apiKey, {
     storeOwnerEmail,
   })
@@ -367,11 +372,13 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  // attach user to store via api
   const userStore = await fetchCreateUserStore(apiKey, {
     storeId: store.id,
     userId: user.id,
   })
 
+  // attach webhook to store via api
   const webhook = await fetchCreateWebhook(apiKey, {
     storeId: store.id,
     url: webhookUrl,
@@ -389,6 +396,7 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  // create LN payment method via API
   const lnPaymentMethod = await fetchCreateLnPaymentMethod(apiKey, {
     storeId: store.id,
     cryptoCode: "BTC",
@@ -396,6 +404,7 @@ app.post('/addStore', async (req, res) => {
     enabled: true,
   })
 
+  // create on-chain payment method via API
   const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod(apiKey, {
     storeId: store.id,
     cryptoCode: "BTC",
@@ -403,6 +412,7 @@ app.post('/addStore', async (req, res) => {
     derivationScheme: onChainZpub,
   })
 
+  // add store to our internal db
   const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
 
   if(!newStore) {
@@ -411,22 +421,32 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  // fetch current exchange rate for store's currency
   const currentExchangeRate = await fetchExchangeRate(defaultCurrency)
 
+  // get btcpayserver Store record from db
   const btcPayServerStore = await getBtcPayServerStore(btcPayServerDb, store.id)
 
+  // the blob stores the custom rate rules
   let storeBlob = JSON.parse(btcPayServerStore.StoreBlob)
 
   if(storeBlob) {
+    // turn on rate scripting
     storeBlob.rateScripting = true
+
+    // set a rate script to convert BTC to store's currency via USD
     storeBlob.rateScript = `BTC_${defaultCurrency.toUpperCase()} = coingecko(BTC_USD) * ${currentExchangeRate};`;
 
     storeBlob = JSON.stringify(storeBlob)
 
+    // update the blob in the btcpayserver db
     const update = await updateBtcPayServerStoreBlob(btcPayServerDb, store.id, storeBlob)
   }
 
+  // fetch the template App we want to copy
   const btcPayServerTemplateApp = await getBtcPayServerTemplateApp(btcPayServerDb)
+
+  // customize the Data we need for the App
   let btcPayServerAppData = {
     Id: generateRandomString(28),
     AppType: "PointOfSale",
@@ -456,6 +476,7 @@ app.post('/addStore', async (req, res) => {
     })
   }
 
+  // create the App record in the btcpayserver db
   const btcPayServerApp = await createBtcPayServerApp(btcPayServerDb, btcPayServerAppData)
 
   // we're done!
