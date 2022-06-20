@@ -17,6 +17,7 @@ const btcpayApiKey = process.env.btcpayApiKey
 const lndTlsCert = process.env.lndTlsCert
 const lndMacaroon = process.env.lndMacaroon
 const lndIpAndPort = process.env.lndIpAndPort
+const onChainZpub = process.env.onChainZpub
 
 const noAuthPaths = [
   '/addStore',
@@ -377,6 +378,20 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  const lnPaymentMethod = await fetchCreateLnPaymentMethod(apiKey, {
+    storeId: store.id,
+    cryptoCode: "BTC",
+    connectionString: "Internal Node",
+    enabled: true,
+  })
+
+  const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod(apiKey, {
+    storeId: store.id,
+    cryptoCode: "BTC",
+    enabled: true,
+    derivationScheme: onChainZpub,
+  })
+
   const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
 
   if(!newStore) {
@@ -566,6 +581,63 @@ const fetchCreateWebhook = async (apiKey, data) => {
     return await response.json()
   } catch (err) {
     console.log('fetchCreateWebhook fail', err)
+    return false
+  }
+}
+
+const fetchCreateLnPaymentMethod = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LightningNetwork/" + data.cryptoCode,
+      {
+        method: "post",
+        body: JSON.stringify({
+          connectionString: data.connectionString,
+          enabled: data.enabled,
+        }),
+        headers: {
+          "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchCreateLnPaymentMethod fail', err)
+    return false
+  }
+}
+
+const fetchCreateOnChainPaymentMethod = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/onchain/" + data.cryptoCode,
+      {
+        method: "post",
+        body: JSON.stringify({
+          enabled: data.enabled,
+          derivationScheme: data.derivationScheme,
+          label: "BJ Electrum",
+        }),
+        headers: {
+          "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchCreateOnChainPaymentMethod fail', err)
     return false
   }
 }
