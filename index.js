@@ -21,6 +21,7 @@ const lndIpAndPort = process.env.lndIpAndPort
 const onChainZpub = process.env.onChainZpub
 const exchangeRateApiKey = process.env.exchangeRateApiKey
 const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
+const basePath = process.env.basePath
 
 const noAuthPaths = [
   '/addStore',
@@ -462,7 +463,7 @@ app.post('/addStore', async (req, res) => {
 })
 
 app.get('/addStore', (req, res) => {
-  res.sendFile('newStore/index.html', {root: '/home/ubuntu/apps/payment-forwarding'})
+  res.sendFile('newStore/index.html', {root: basePath})
 })
 
 app.listen(port, () => {
