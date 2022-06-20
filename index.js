@@ -294,6 +294,7 @@ app.post('/addStore', async (req, res) => {
   const paymentTolerance = 1
   const defaultPaymentMethod = "BTC_LightningNetwork"
   const customLogo = "https://storage.googleapis.com/bitcoin-jungle-branding/logo/web/logo-web-white-bg.png"
+  const webhookUrl = "https://btcpayserver.bitcoinjungle.app/forward"
 
   if(!apiKey) {
     res.status(400).send({success: false, error: true, message: "apiKey is required"})
@@ -358,6 +359,23 @@ app.post('/addStore', async (req, res) => {
     storeId: store.id,
     userId: user.id,
   })
+
+  const webhook = await fetchCreateWebhook(apiKey, {
+    storeId: store.id,
+    url: webhookUrl,
+    secret: webhookSecret,
+    authorizedEvents: {
+      everything: false,
+      specificEvents: [
+        "InvoiceSettled",
+      ],
+    },
+  })
+
+  if(!webhook.id) {
+    res.status(400).send({success: false, error: true, message: "error happened creating webhook in API"})
+    return
+  }
 
   const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
 
@@ -519,6 +537,35 @@ const fetchCreateUserStore = async (apiKey, data) => {
     return await response.json()
   } catch (err) {
     console.log('fetchCreateUserStore fail', err)
+    return false
+  }
+}
+
+const fetchCreateWebhook = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/webhooks",
+      {
+        method: "post",
+        body: JSON.stringify({
+          url: data.url,
+          secret: data.secret,
+          authorizedEvents: data.authorizedEvents,
+        }),
+        headers: {
+          "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchCreateWebhook fail', err)
     return false
   }
 }
