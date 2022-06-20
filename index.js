@@ -437,6 +437,7 @@ const fetchCreateStore = async (apiKey, data) => {
     )
 
     if (!response.ok) {
+      console.log(response)
       return false
     }
     return await response.json()
