@@ -20,6 +20,7 @@ const lndMacaroon = process.env.lndMacaroon
 const lndIpAndPort = process.env.lndIpAndPort
 const onChainZpub = process.env.onChainZpub
 const exchangeRateApiKey = process.env.exchangeRateApiKey
+const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 
 const noAuthPaths = [
   '/addStore',
@@ -410,8 +411,6 @@ app.post('/addStore', async (req, res) => {
 
   const currentExchangeRate = await fetchExchangeRate(defaultCurrency)
 
-  console.log('currentExchangeRate', currentExchangeRate)
-
   const btcPayServerStore = await getBtcPayServerStore(btcPayServerDb, store.id)
 
   let storeBlob = JSON.parse(btcPayServerStore.StoreBlob)
@@ -424,6 +423,38 @@ app.post('/addStore', async (req, res) => {
 
     const update = await updateBtcPayServerStoreBlob(btcPayServerDb, store.id, storeBlob)
   }
+
+  const btcPayServerTemplateApp = await getBtcPayServerTemplateApp(btcPayServerDb)
+  let btcPayServerAppData = {
+    Id: generateRandomString(28),
+    AppType: "PointOfSale",
+    Created: 1306446895470200832,
+    Name: storeName,
+    StoreDataId: store.id,
+    Settings: JSON.stringify({
+      "Title": storeName,
+      "Currency": defaultCurrency.toUpperCase(),
+      "Template": "{}\n",
+      "EnableShoppingCart": false,
+      "DefaultView": 2,
+      "ShowCustomAmount": true,
+      "ShowDiscount": true,
+      "EnableTips": false,
+      "RequiresRefundEmail": 0,
+      "ButtonText": "Buy for {0}",
+      "CustomButtonText": "Pay",
+      "CustomTipText": "Do you want to leave a tip?",
+      "CustomTipPercentages": [15, 18, 20],
+      "CustomCSSLink": null,
+      "EmbeddedCSS": "* {\r\n  touch-action: manipulation;\r\n}",
+      "Description": null,
+      "NotificationUrl": null,
+      "RedirectUrl": null,
+      "RedirectAutomatically": null
+    })
+  }
+
+  const btcPayServerApp = await createBtcPayServerApp(btcPayServerDb, btcPayServerAppData)
 
   // we're done!
   res.status(200).send({success: true, error: false, message: "OK"})
@@ -465,6 +496,16 @@ const fetchExchangeRate = async (currency) => {
     console.log('fetchExchangeRate fail', err)
     return false
   }
+}
+
+const generateRandomString = (length) => {
+    var result           = '';
+    var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    var charactersLength = characters.length;
+    for ( var i = 0; i < length; i++ ) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+   }
+   return result;
 }
 
 const payLnInvoice = async (lnd, invoice) => {
@@ -562,7 +603,7 @@ const fetchCreateUser = async (apiKey, data) => {
         method: "post",
         body: JSON.stringify({
           email: data.storeOwnerEmail,
-          password: Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16),
+          password: generateRandomString(16),
         }),
         headers: {
           "Authorization": "token " + apiKey,
@@ -713,6 +754,35 @@ const fetchInvoicePayments = async (storeId, invoiceId) => {
     return await response.json()
   } catch (err) {
     console.log('fetchInvoicePayments fail', err)
+    return false
+  }
+}
+
+const getBtcPayServerTemplateApp = async (db) => {
+  try {
+    return await db.get(
+      "SELECT * FROM Apps WHERE Id = ?", 
+      [btcPayServerTemplateAppId]
+    )
+  } catch {
+    return false
+  }
+}
+
+const createBtcPayServerApp = async (db, data) => {
+  try {
+    return await db.run(
+      "INSERT INTO Apps (Id, AppType, Created, Name, StoreDataId, Settings) VALUES (?, ?, ?, ?, ?, ?)", 
+      [
+        data.Id,
+        data.AppType,
+        data.Created,
+        data.Name,
+        data.StoreDataId,
+        data.Settings
+      ]
+    )
+  } catch {
     return false
   }
 }
