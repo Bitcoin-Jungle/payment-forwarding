@@ -461,7 +461,7 @@ const fetchCreateStore = async (apiKey, data) => {
     }
     return await response.json()
   } catch (err) {
-    console.log('fetchInvoicePayments fail', err)
+    console.log('fetchCreateStore fail', err)
     return false
   }
 }
@@ -489,7 +489,7 @@ const fetchCreateUser = async (apiKey, data) => {
     }
     return await response.json()
   } catch (err) {
-    console.log('fetchInvoicePayments fail', err)
+    console.log('fetchCreateUser fail', err)
     return false
   }
 }
@@ -497,7 +497,7 @@ const fetchCreateUser = async (apiKey, data) => {
 const fetchCreateUserStore = async (apiKey, data) => {
   try {
     const response = await fetch(
-      btcpayBaseUri + "api/v1/stores/" + storeId + "/users",
+      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/users",
       {
         method: "post",
         body: JSON.stringify({
@@ -517,7 +517,7 @@ const fetchCreateUserStore = async (apiKey, data) => {
     }
     return await response.json()
   } catch (err) {
-    console.log('fetchInvoicePayments fail', err)
+    console.log('fetchCreateUserStore fail', err)
     return false
   }
 }
