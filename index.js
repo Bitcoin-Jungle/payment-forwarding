@@ -459,10 +459,10 @@ const fetchExchangeRate = async (currency) => {
       return false
     }
 
-    return Math.round(response.rates[currency.toUpperCase()])
+    return Math.round(data.rates[currency.toUpperCase()])
 
   } catch (err) {
-    console.log('fetchCreateStore fail', err)
+    console.log('fetchExchangeRate fail', err)
     return false
   }
 }
