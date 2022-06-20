@@ -355,6 +355,7 @@ app.post('/addStore', async (req, res) => {
   }
 
   const userStore = await fetchCreateUserStore(apiKey, {
+    storeId: store.id,
     userId: user.id,
   })
 
