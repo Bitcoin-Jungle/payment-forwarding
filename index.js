@@ -11,6 +11,7 @@ import { authenticatedLndGrpc } from 'lightning'
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
 const dbLocation = process.env.dbLocation
+const btcPayServerDbLocation = process.env.btcPayServerDbLocation
 const btcpayBaseUri = process.env.btcpayBaseUri
 const lnUrlBaseUri = process.env.lnUrlBaseUri
 const btcpayApiKey = process.env.btcpayApiKey
@@ -18,6 +19,7 @@ const lndTlsCert = process.env.lndTlsCert
 const lndMacaroon = process.env.lndMacaroon
 const lndIpAndPort = process.env.lndIpAndPort
 const onChainZpub = process.env.onChainZpub
+const exchangeRateApiKey = process.env.exchangeRateApiKey
 
 const noAuthPaths = [
   '/addStore',
@@ -332,6 +334,12 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  // connect to the db
+  const btcPayServerDb = await open({
+    filename: btcPayServerDbLocation,
+    driver: sqlite3.Database
+  })
+
   const store = await fetchCreateStore(apiKey, {
     storeName,
     storeOwnerEmail,
@@ -400,6 +408,23 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  const currentExchangeRate = await fetchExchangeRate(defaultCurrency)
+
+  console.log('currentExchangeRate', currentExchangeRate)
+
+  const btcPayServerStore = await getBtcPayServerStore(btcPayServerDb, store.id)
+
+  let storeBlob = JSON.parse(btcPayServerStore.StoreBlob)
+
+  if(storeBlob) {
+    storeBlob.rateScripting = true
+    storeBlob.rateScript = `BTC_${defaultCurrency.toUpperCase()} = coingecko(BTC_USD) * ${currentExchangeRate};`;
+
+    storeBlob = JSON.stringify(storeBlob)
+
+    const update = await updateBtcPayServerStoreBlob(btcPayServerDb, store.id, storeBlob)
+  }
+
   // we're done!
   res.status(200).send({success: true, error: false, message: "OK"})
   return
@@ -412,6 +437,35 @@ app.get('/addStore', (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening at http://localhost:${port}`)
 })
+
+const fetchExchangeRate = async (currency) => {
+  try {
+    const response = await fetch(
+      `https://api.exchangeratesapi.io/v1/latest?access_key=${exchangeRateApiKey}&base=USD&symbols=${currency.toUpperCase()}`,
+      {
+        method: "get",
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+
+    const data = await response.json()
+
+    if(!data.success) {
+      console.log(data)
+      return false
+    }
+
+    return Math.round(response.rates[currency.toUpperCase()])
+
+  } catch (err) {
+    console.log('fetchCreateStore fail', err)
+    return false
+  }
+}
 
 const payLnInvoice = async (lnd, invoice) => {
   try {
@@ -659,6 +713,31 @@ const fetchInvoicePayments = async (storeId, invoiceId) => {
     return await response.json()
   } catch (err) {
     console.log('fetchInvoicePayments fail', err)
+    return false
+  }
+}
+
+const updateBtcPayServerStoreBlob = async (db, storeId, storeBlob) => {
+  try {
+    return await db.get(
+      "UPDATE Stores SET StoreBlob = ? WHERE id = ?", 
+      [
+        storeBlob,
+        storeId,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const getBtcPayServerStore = async (db, storeId) => {
+  try {
+    return await db.get(
+      "SELECT * FROM Stores WHERE Id = ?", 
+      [storeId]
+    )
+  } catch {
     return false
   }
 }
