@@ -424,12 +424,13 @@ const fetchInvoice = async (storeId, invoiceId) => {
 }
 
 const fetchCreateStore = async (apiKey, data) => {
+  console.log(data)
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores",
       {
         method: "post",
-        body: data,
+        body: JSON.stringify(data),
         headers: {
           "Authorization": "token " + apiKey,
           "Content-Type": "application/json",
