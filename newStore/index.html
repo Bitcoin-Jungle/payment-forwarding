@@ -1,70 +1,105 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bitcoin Jungle | New Store</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor" crossorigin="anonymous">
-  </head>
-  <body>
-    <div class="container">
-    	<h1>Add New Store to Bitcoin Jungle</h1>
-	    <form id="addStore">
-		  <div class="mb-3">
-		    <label for="storeId" class="form-label">BTCPayServer Store ID</label>
-		    <input type="text" class="form-control" id="storeId">
-		    <div class="form-text">Get the Store ID from BTCPayServer and enter it here</div>
-		  </div>
-		  <div class="mb-3">
-		    <label for="rate" class="form-label">Pay Rate</label>
-		    <input type="text" class="form-control" id="rate">
-		    <div class="form-text">Enter the %, in decimal format, that the store owner should receive. I.e. if you charge a 0.5% fee, enter 0.995</div>
-		  </div>
-		  <div class="mb-3">
-		    <label for="storeId" class="form-label">Bitcoin Jungle Username</label>
-		    <input type="text" class="form-control" id="bitcoinJungleUsername">
-		    <div class="form-text">Get the business owner's Bitcoin Jungle username and enter it here</div>
-		  </div>
-		  <button type="submit" class="btn btn-primary">Add Store Now</button>
-		</form>
-	</div>
+	<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Bitcoin Jungle | New Store</title>
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-0evHe/X+R7YkIZDRvuzKMRqM+OrBnVFBL6DOitfPri4tjfHxaWutUpFmBp4vmVor" crossorigin="anonymous">
+	</head>
+	<body>
+		<div class="container">
+			<h1>Add New Store to Bitcoin Jungle</h1>
+			<form id="addStore">
+				<div class="mb-3">
+					<label for="apiKey" class="form-label">API Key</label>
+					<input type="password" class="form-control" id="apiKey">
+					<div class="form-text">Enter your BTCPayServer API Key here</div>
+				</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/js/bootstrap.bundle.min.js" integrity="sha384-pprn3073KE6tl6bjs2QrFaJGz5/SUsLqktiwsUTF55Jfv3qYSDhgCecCxMW52nD2" crossorigin="anonymous"></script>
-    <script>
-    	const formEl = document.querySelector("form#addStore")
+				<div class="mb-3">
+					<label for="storeName" class="form-label">Store Name</label>
+					<input type="text" class="form-control" id="storeName">
+					<div class="form-text">Enter the publicly visible name of the store here</div>
+				</div>
 
-		formEl.addEventListener('submit', async (e) => {
-			e.preventDefault()
+				<div class="mb-3">
+					<label for="storeOwnerEmail" class="form-label">Store Owner Email</label>
+					<input type="text" class="form-control" id="storeOwnerEmail">
+					<div class="form-text">Enter the store owner's email address here</div>
+				</div>
+
+				<div class="mb-3">
+					<label for="defaultCurrency" class="form-label">Default Currency</label>
+					<input type="text" class="form-control" id="defaultCurrency">
+					<div class="form-text">Enter the default fiat currency here (i.e. CRC)</div>
+				</div>
+
+				<div class="mb-3">
+					<label for="defaultLanguage" class="form-label">Default Language</label>
+					<input type="text" class="form-control" id="defaultLanguage">
+					<div class="form-text">Enter the default language here (i.e. en or es)</div>
+				</div>
+
+				<div class="mb-3">
+					<label for="rate" class="form-label">Pay Rate</label>
+					<input type="text" class="form-control" id="rate">
+					<div class="form-text">Enter the %, in decimal format, that the store owner should receive. I.e. if you charge a 0.5% fee, enter 0.995</div>
+				</div>
+
+				<div class="mb-3">
+					<label for="storeId" class="form-label">Bitcoin Jungle Username</label>
+					<input type="text" class="form-control" id="bitcoinJungleUsername">
+					<div class="form-text">Get the business owner's Bitcoin Jungle username and enter it here</div>
+				</div>
+
+				<button type="submit" class="btn btn-primary">Add Store Now</button>
+			</form>
+		</div>
+
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/js/bootstrap.bundle.min.js" integrity="sha384-pprn3073KE6tl6bjs2QrFaJGz5/SUsLqktiwsUTF55Jfv3qYSDhgCecCxMW52nD2" crossorigin="anonymous"></script>
+		<script>
+			const formEl = document.querySelector("form#addStore")
+
+			formEl.addEventListener('submit', async (e) => {
+				e.preventDefault()
 				
-			const storeId = document.querySelector("#storeId").value
-			const rate 	  = document.querySelector("#rate").value
-			const bitcoinJungleUsername = document.querySelector("#bitcoinJungleUsername").value
+				const apiKey = document.querySelector("#apiKey").value
+				const storeName = document.querySelector("#storeName").value
+				const storeOwnerEmail = document.querySelector("#storeOwnerEmail").value
+				const defaultCurrency = document.querySelector("#defaultCurrency").value
+				const defaultLanguage = document.querySelector("#defaultLanguage").value
+				const rate 	  = document.querySelector("#rate").value
+				const bitcoinJungleUsername = document.querySelector("#bitcoinJungleUsername").value
 
-			return fetch("https://btcpayserver.bitcoinjungle.app/addStore", {
-		      "method": "POST",
-		      "headers": {
-		            "Content-Type": "application/json; charset=utf-8"
-		      },
-		      "body": JSON.stringify({
-		            storeId: storeId,
-		            rate: rate,
-		            bitcoinJungleUsername: bitcoinJungleUsername
-		      })
-			})
-			.then((res) => res.json())
-			.then((data) => {
-				if(data.error) {
-					alert(data.message)
-					return
-				}
+				return fetch("https://btcpayserver.bitcoinjungle.app/addStore", {
+					"method": "POST",
+					"headers": {
+						"Content-Type": "application/json; charset=utf-8"
+					},
+					"body": JSON.stringify({
+						apiKey,
+						storeName,
+						storeOwnerEmail,
+						defaultCurrency,
+						defaultLanguage,
+						rate,
+						bitcoinJungleUsername
+					})
+				})
+				.then((res) => res.json())
+				.then((data) => {
+					if(data.error) {
+						alert(data.message)
+						return
+					}
 
-				alert("Store saved successfully")
-				formEl.reset()
+					alert("Store saved successfully")
+					formEl.reset()
+				})
+				.catch((err) => {
+					alert(err)
+				})
 			})
-			.catch((err) => {
-				alert(err)
-			})
-		})
-    </script>
-  </body>
-</html>
+		</script>
+	</body>
+	</html>

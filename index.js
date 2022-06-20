@@ -283,12 +283,40 @@ app.post('/beds24', async (req, res) => {
 })
 
 app.post('/addStore', async (req, res) => {
-  const storeId = req.body.storeId
+  const apiKey  = req.body.apiKey
+  const storeName = req.body.storeName
+  const storeOwnerEmail = req.body.storeOwnerEmail
+  const defaultCurrency = req.body.defaultCurrency
+  const defaultLanguage = req.body.defaultLanguage
   const rate    = req.body.rate
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
 
-  if(!storeId) {
-    res.status(400).send({success: false, error: true, message: "storeId is required"})
+  const paymentTolerance = 1
+  const defaultPaymentMethod = "BTC_LightningNetwork"
+  const customLogo = "https://storage.googleapis.com/bitcoin-jungle-branding/logo/web/logo-web-white-bg.png"
+
+  if(!apiKey) {
+    res.status(400).send({success: false, error: true, message: "apiKey is required"})
+    return
+  }
+
+  if(!storeName) {
+    res.status(400).send({success: false, error: true, message: "storeName is required"})
+    return
+  }
+
+  if(!storeOwnerEmail) {
+    res.status(400).send({success: false, error: true, message: "storeOwnerEmail is required"})
+    return
+  }
+
+  if(!defaultCurrency) {
+    res.status(400).send({success: false, error: true, message: "defaultCurrency is required"})
+    return
+  }
+
+  if(!defaultLanguage) {
+    res.status(400).send({success: false, error: true, message: "defaultLanguage is required"})
     return
   }
 
@@ -308,6 +336,16 @@ app.post('/addStore', async (req, res) => {
     res.status(400).send({success: false, error: true, message: "storeId already exists"})
     return
   }
+
+  const createStore = await fetchCreateStore(apiKey, {
+    storeName,
+    storeOwnerEmail,
+    defaultCurrency,
+    defaultLanguage,
+    paymentTolerance,
+    defaultPaymentMethod,
+    customLogo,
+  })
 
   const newStore = await addStore(db, storeId, rate, bitcoinJungleUsername)
 
@@ -381,6 +419,29 @@ const fetchInvoice = async (storeId, invoiceId) => {
     return await response.json()
   } catch (err) {
     console.log('fetchInvoice fail', err)
+    return false
+  }
+}
+
+const fetchCreateStore = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores",
+      {
+        method: "post",
+        body: data,
+        headers: {
+          "Authorization": "token " + apiKey,
+        }
+      }
+    )
+
+    if (!response.ok) {
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchInvoicePayments fail', err)
     return false
   }
 }
