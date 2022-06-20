@@ -340,6 +340,8 @@ app.post('/addStore', async (req, res) => {
     customLogo,
   })
 
+  console.log(store)
+
   if(!store.id) {
     res.status(400).send({success: false, error: true, message: "error happened creating store in API"})
     return
