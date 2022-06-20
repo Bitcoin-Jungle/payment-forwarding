@@ -432,6 +432,7 @@ const fetchCreateStore = async (apiKey, data) => {
         body: data,
         headers: {
           "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
         }
       }
     )
