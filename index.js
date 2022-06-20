@@ -24,6 +24,7 @@ const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 const basePath = process.env.basePath
 const defaultLogoUri = process.env.defaultLogoUri
 
+// these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
   '/addStore',
 ]
