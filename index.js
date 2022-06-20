@@ -590,7 +590,7 @@ const fetchCreateLnPaymentMethod = async (apiKey, data) => {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LightningNetwork/" + data.cryptoCode,
       {
-        method: "post",
+        method: "put",
         body: JSON.stringify({
           connectionString: data.connectionString,
           enabled: data.enabled,
@@ -618,7 +618,7 @@ const fetchCreateOnChainPaymentMethod = async (apiKey, data) => {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/onchain/" + data.cryptoCode,
       {
-        method: "post",
+        method: "put",
         body: JSON.stringify({
           enabled: data.enabled,
           derivationScheme: data.derivationScheme,
