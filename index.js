@@ -330,14 +330,7 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
-  const storeExists = await getStore(db, storeId)
-
-  if(storeExists) {
-    res.status(400).send({success: false, error: true, message: "storeId already exists"})
-    return
-  }
-
-  const createStore = await fetchCreateStore(apiKey, {
+  const store = await fetchCreateStore(apiKey, {
     storeName,
     storeOwnerEmail,
     defaultCurrency,
@@ -347,7 +340,12 @@ app.post('/addStore', async (req, res) => {
     customLogo,
   })
 
-  const newStore = await addStore(db, storeId, rate, bitcoinJungleUsername)
+  if(!store.id) {
+    res.status(400).send({success: false, error: true, message: "error happened creating store in API"})
+    return
+  }
+
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
 
   if(!newStore) {
     console.log('db error', newStore)
