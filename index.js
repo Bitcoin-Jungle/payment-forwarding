@@ -340,12 +340,23 @@ app.post('/addStore', async (req, res) => {
     customLogo,
   })
 
-  console.log(store)
-
   if(!store.id) {
     res.status(400).send({success: false, error: true, message: "error happened creating store in API"})
     return
   }
+
+  const user = await fetchCreateUser(apiKey, {
+    storeOwnerEmail,
+  })
+
+  if(!user.id) {
+    res.status(400).send({success: false, error: true, message: "error happened creating user in API"})
+    return
+  }
+
+  const userStore = await fetchCreateUserStore(apiKey, {
+    userId: user.id,
+  })
 
   const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
 
@@ -424,13 +435,19 @@ const fetchInvoice = async (storeId, invoiceId) => {
 }
 
 const fetchCreateStore = async (apiKey, data) => {
-  console.log(data)
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores",
       {
         method: "post",
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          name: data.storeName,
+          defaultCurrency: data.defaultCurrency,
+          defaultLanguage: data.defaultLanguage,
+          paymentTolerance: data.paymentTolerance,
+          defaultPaymentMethod: data.defaultPaymentMethod,
+          customLogo: data.customLogo,
+        }),
         headers: {
           "Authorization": "token " + apiKey,
           "Content-Type": "application/json",
@@ -439,7 +456,62 @@ const fetchCreateStore = async (apiKey, data) => {
     )
 
     if (!response.ok) {
-      console.log(response)
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchInvoicePayments fail', err)
+    return false
+  }
+}
+
+const fetchCreateUser = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/users",
+      {
+        method: "post",
+        body: JSON.stringify({
+          email: data.storeOwnerEmail,
+        }),
+        headers: {
+          "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchInvoicePayments fail', err)
+    return false
+  }
+}
+
+const fetchCreateUserStore = async (apiKey, data) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + storeId + "/users",
+      {
+        method: "post",
+        body: JSON.stringify({
+          userId: data.userId,
+          role: "Guest",
+        }),
+        headers: {
+          "Authorization": "token " + apiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
       return false
     }
     return await response.json()
