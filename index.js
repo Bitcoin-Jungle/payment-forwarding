@@ -428,7 +428,7 @@ app.post('/addStore', async (req, res) => {
   let btcPayServerAppData = {
     Id: generateRandomString(28),
     AppType: "PointOfSale",
-    Created: 1306446895470200832,
+    Created: "1306446895470200832",
     Name: storeName,
     StoreDataId: store.id,
     Settings: JSON.stringify({
