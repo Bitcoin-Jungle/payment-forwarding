@@ -474,6 +474,7 @@ const fetchCreateUser = async (apiKey, data) => {
         method: "post",
         body: JSON.stringify({
           email: data.storeOwnerEmail,
+          password: Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16),
         }),
         headers: {
           "Authorization": "token " + apiKey,
