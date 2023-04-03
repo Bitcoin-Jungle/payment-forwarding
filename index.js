@@ -461,7 +461,7 @@ app.post('/addStore', async (req, res) => {
       "EnableShoppingCart": false,
       "DefaultView": 2,
       "ShowCustomAmount": true,
-      "ShowDiscount": true,
+      "ShowDiscount": false,
       "EnableTips": false,
       "RequiresRefundEmail": 0,
       "ButtonText": "Buy for {0}",
