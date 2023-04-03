@@ -23,6 +23,7 @@ const exchangeRateApiKey = process.env.exchangeRateApiKey
 const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 const basePath = process.env.basePath
 const defaultLogoUri = process.env.defaultLogoUri
+const internalKey = process.env.internalKey
 
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
@@ -311,6 +312,11 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
+  if(apiKey !== internalKey) {
+    res.status(400).send({success: false, error: true, message: "apiKey is incorrect"})
+    return
+  }
+
   if(!storeName) {
     res.status(400).send({success: false, error: true, message: "storeName is required"})
     return
@@ -348,7 +354,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // create store via api
-  const store = await fetchCreateStore(apiKey, {
+  const store = await fetchCreateStore({
     storeName,
     storeOwnerEmail,
     defaultCurrency,
@@ -364,7 +370,7 @@ app.post('/addStore', async (req, res) => {
   }
 
   // create user via api
-  const user = await fetchCreateUser(apiKey, {
+  const user = await fetchCreateUser({
     storeOwnerEmail,
   })
 
@@ -374,13 +380,13 @@ app.post('/addStore', async (req, res) => {
   }
 
   // attach user to store via api
-  const userStore = await fetchCreateUserStore(apiKey, {
+  const userStore = await fetchCreateUserStore({
     storeId: store.id,
     userId: user.id,
   })
 
   // attach webhook to store via api
-  const webhook = await fetchCreateWebhook(apiKey, {
+  const webhook = await fetchCreateWebhook({
     storeId: store.id,
     url: webhookUrl,
     secret: webhookSecret,
@@ -398,7 +404,7 @@ app.post('/addStore', async (req, res) => {
   }
 
   // create LN payment method via API
-  const lnPaymentMethod = await fetchCreateLnPaymentMethod(apiKey, {
+  const lnPaymentMethod = await fetchCreateLnPaymentMethod({
     storeId: store.id,
     cryptoCode: "BTC",
     connectionString: "Internal Node",
@@ -406,7 +412,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // create on-chain payment method via API
-  const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod(apiKey, {
+  const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod({
     storeId: store.id,
     cryptoCode: "BTC",
     enabled: true,
@@ -587,7 +593,7 @@ const fetchInvoice = async (storeId, invoiceId) => {
   }
 }
 
-const fetchCreateStore = async (apiKey, data) => {
+const fetchCreateStore = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores",
@@ -602,7 +608,7 @@ const fetchCreateStore = async (apiKey, data) => {
           customLogo: data.customLogo,
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
@@ -619,7 +625,7 @@ const fetchCreateStore = async (apiKey, data) => {
   }
 }
 
-const fetchCreateUser = async (apiKey, data) => {
+const fetchCreateUser = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/users",
@@ -630,7 +636,7 @@ const fetchCreateUser = async (apiKey, data) => {
           password: generateRandomString(16),
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
@@ -647,7 +653,7 @@ const fetchCreateUser = async (apiKey, data) => {
   }
 }
 
-const fetchCreateUserStore = async (apiKey, data) => {
+const fetchCreateUserStore = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/users",
@@ -658,7 +664,7 @@ const fetchCreateUserStore = async (apiKey, data) => {
           role: "Guest",
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
@@ -675,7 +681,7 @@ const fetchCreateUserStore = async (apiKey, data) => {
   }
 }
 
-const fetchCreateWebhook = async (apiKey, data) => {
+const fetchCreateWebhook = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/webhooks",
@@ -687,7 +693,7 @@ const fetchCreateWebhook = async (apiKey, data) => {
           authorizedEvents: data.authorizedEvents,
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
@@ -704,7 +710,7 @@ const fetchCreateWebhook = async (apiKey, data) => {
   }
 }
 
-const fetchCreateLnPaymentMethod = async (apiKey, data) => {
+const fetchCreateLnPaymentMethod = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LightningNetwork/" + data.cryptoCode,
@@ -715,7 +721,7 @@ const fetchCreateLnPaymentMethod = async (apiKey, data) => {
           enabled: data.enabled,
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
@@ -732,7 +738,7 @@ const fetchCreateLnPaymentMethod = async (apiKey, data) => {
   }
 }
 
-const fetchCreateOnChainPaymentMethod = async (apiKey, data) => {
+const fetchCreateOnChainPaymentMethod = async (data) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/onchain/" + data.cryptoCode,
@@ -744,7 +750,7 @@ const fetchCreateOnChainPaymentMethod = async (apiKey, data) => {
           label: "BJ Electrum",
         }),
         headers: {
-          "Authorization": "token " + apiKey,
+          "Authorization": "token " + btcpayApiKey,
           "Content-Type": "application/json",
         }
       }
