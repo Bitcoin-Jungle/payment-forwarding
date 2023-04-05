@@ -53,7 +53,7 @@ app.use(bodyParser.json({
 
 // HMAC verification middleware
 app.use((req, res, next) => {
-  if(noAuthPaths.indexOf(req.url) !== -1) {
+  if(noAuthPaths.indexOf(req.url.split("?")[0]) !== -1) {
     next()
     return
   }
