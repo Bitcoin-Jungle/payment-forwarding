@@ -6,6 +6,7 @@ import { open } from 'sqlite'
 import fetch from 'node-fetch'
 import { pay } from 'ln-service'
 import { authenticatedLndGrpc } from 'lightning'
+import sgMail from '@sendgrid/mail'
 
 // set all the env vars
 const port = process.env.port
@@ -24,6 +25,9 @@ const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 const basePath = process.env.basePath
 const defaultLogoUri = process.env.defaultLogoUri
 const internalKey = process.env.internalKey
+const sendgridApiKey = process.env.sendgridApiKey
+
+sgMail.setApiKey(sendgridApiKey)
 
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
@@ -490,6 +494,8 @@ app.post('/addStore', async (req, res) => {
   // create the App record in the btcpayserver db
   const btcPayServerApp = await createBtcPayServerApp(btcPayServerDb, btcPayServerAppData)
 
+  const emailSent = await sendEmail(storeOwnerEmail)
+
   // we're done!
   res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerAppData.Id})
   return
@@ -502,6 +508,25 @@ app.get('/addStore', (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening at http://localhost:${port}`)
 })
+
+const sendEmail = async (storeOwnerEmail) => {
+  const msg = {
+    to: storeOwnerEmail,
+    from: 'noreply@bitcoinjungle.app',
+    subject: 'New Bitcoin Point of Sale Created',
+    html: 'Please visit <a href="https://btcpayserver.bitcoinjungle.app/login/forgot-password">btcpayserver.bitcoinjungle.app</a> to create a password and log into the Point of Sale Admin system.',
+  }
+
+  return sgMail.send(msg)
+    .then(() => {
+      return true
+    })
+    .catch((error) => {
+      console.error(error)
+
+      return false
+    })
+}
 
 const fetchExchangeRate = async (currency) => {
   try {
