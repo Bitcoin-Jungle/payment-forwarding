@@ -12,7 +12,6 @@ import sgMail from '@sendgrid/mail'
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
 const dbLocation = process.env.dbLocation
-const btcPayServerDbLocation = process.env.btcPayServerDbLocation
 const btcpayBaseUri = process.env.btcpayBaseUri
 const lnUrlBaseUri = process.env.lnUrlBaseUri
 const btcpayApiKey = process.env.btcpayApiKey
@@ -21,9 +20,9 @@ const lndMacaroon = process.env.lndMacaroon
 const lndIpAndPort = process.env.lndIpAndPort
 const onChainZpub = process.env.onChainZpub
 const exchangeRateApiKey = process.env.exchangeRateApiKey
-const btcPayServerTemplateAppId = process.env.btcPayServerTemplateAppId
 const basePath = process.env.basePath
 const defaultLogoUri = process.env.defaultLogoUri
+const defaultCssUri = process.env.defaultCssUri
 const internalKey = process.env.internalKey
 const sendgridApiKey = process.env.sendgridApiKey
 
@@ -308,6 +307,7 @@ app.post('/addStore', async (req, res) => {
   const paymentTolerance = 1
   const defaultPaymentMethod = "BTC_LightningNetwork"
   const customLogo = defaultLogoUri
+  const customCSS = defaultCssUri
   const webhookUrl = btcpayBaseUri + "forward"
 
   // do the validation
@@ -351,12 +351,6 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
-  // connect to the btcpayserver db
-  const btcPayServerDb = await open({
-    filename: btcPayServerDbLocation,
-    driver: sqlite3.Database
-  })
-
   // create store via api
   const store = await fetchCreateStore({
     storeName,
@@ -366,6 +360,7 @@ app.post('/addStore', async (req, res) => {
     paymentTolerance,
     defaultPaymentMethod,
     customLogo,
+    customCSS,
   })
 
   if(!store.id) {
@@ -439,65 +434,30 @@ app.post('/addStore', async (req, res) => {
   // fetch current exchange rate for store's currency
   const currentExchangeRate = await fetchExchangeRate(defaultCurrency)
 
-  // get btcpayserver Store record from db
-  const btcPayServerStore = await getBtcPayServerStore(btcPayServerDb, store.id)
-
-  // the blob stores the custom rate rules
-  let storeBlob = JSON.parse(btcPayServerStore.StoreBlob)
-
-  if(storeBlob) {
-    // turn on rate scripting
-    storeBlob.rateScripting = true
-
-    // set a rate script to convert BTC to store's currency via USD
-    storeBlob.rateScript = `BTC_${defaultCurrency.toUpperCase()} = coingecko(BTC_USD) * ${currentExchangeRate};`;
-
-    storeBlob = JSON.stringify(storeBlob)
-
-    // update the blob in the btcpayserver db
-    const update = await updateBtcPayServerStoreBlob(btcPayServerDb, store.id, storeBlob)
-  }
-
-  // fetch the template App we want to copy
-  const btcPayServerTemplateApp = await getBtcPayServerTemplateApp(btcPayServerDb)
+  // update store rate script for CRC support
+  const rateScript = `BTC_${defaultCurrency.toUpperCase()} = coingecko(BTC_USD) * ${currentExchangeRate};`
+  const btcPayServerRate = await updateBtcPayServerRate(store.id, rateScript)
 
   // customize the Data we need for the App
   let btcPayServerAppData = {
-    Id: generateRandomString(28),
-    AppType: "PointOfSale",
-    Created: "1306446895470200832",
-    Name: storeName,
-    StoreDataId: store.id,
-    Settings: JSON.stringify({
-      "Title": storeName,
-      "Currency": defaultCurrency.toUpperCase(),
-      "Template": "{}\n",
-      "EnableShoppingCart": false,
-      "DefaultView": 2,
-      "ShowCustomAmount": true,
-      "ShowDiscount": false,
-      "EnableTips": false,
-      "RequiresRefundEmail": 0,
-      "ButtonText": "Buy for {0}",
-      "CustomButtonText": "Pay",
-      "CustomTipText": "Do you want to leave a tip?",
-      "CustomTipPercentages": [15, 18, 20],
-      "CustomCSSLink": null,
-      "EmbeddedCSS": "* {\r\n  touch-action: manipulation;\r\n}",
-      "Description": null,
-      "NotificationUrl": null,
-      "RedirectUrl": null,
-      "RedirectAutomatically": null
-    })
+    appName: storeName,
+    title: storeName,
+    currency: defaultCurrency.toUpperCase(),
+    defaultView: "Light",
+    showCustomAmount: true,
+    showDiscount: false,
+    enableTips: true,
+    requiresRefundEmail: false,
+    checkoutType: "V2",
   }
 
   // create the App record in the btcpayserver db
-  const btcPayServerApp = await createBtcPayServerApp(btcPayServerDb, btcPayServerAppData)
+  const btcPayServerApp = await createBtcPayServerApp(store.id, btcPayServerAppData)
 
   const emailSent = await sendEmail(storeOwnerEmail)
 
   // we're done!
-  res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerAppData.Id})
+  res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerApp.id})
   return
 })
 
@@ -630,11 +590,14 @@ const fetchCreateStore = async (data) => {
         method: "post",
         body: JSON.stringify({
           name: data.storeName,
+          htmlTitle: data.storeName + " - Point of Sale",
           defaultCurrency: data.defaultCurrency,
-          defaultLanguage: data.defaultLanguage,
+          defaultLang: data.defaultLanguage,
           paymentTolerance: data.paymentTolerance,
           defaultPaymentMethod: data.defaultPaymentMethod,
           customLogo: data.customLogo,
+          customCSS: data.customCSS,
+          lightningAmountInSatoshi: true,
         }),
         headers: {
           "Authorization": "token " + btcpayApiKey,
@@ -650,6 +613,35 @@ const fetchCreateStore = async (data) => {
     return await response.json()
   } catch (err) {
     console.log('fetchCreateStore fail', err)
+    return false
+  }
+}
+
+const updateBtcPayServerRate = async (storeId, rateScript) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + `api/v1/stores/${storeId}/rates/configuration`,
+      {
+        method: "put",
+        body: JSON.stringify({
+          spread: "0",
+          isCustomScript: true,
+          effectiveScript: rateScript,
+        }),
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('updateBtcPayServerRate fail', err)
     return false
   }
 }
@@ -842,56 +834,27 @@ const fetchInvoicePayments = async (storeId, invoiceId) => {
   }
 }
 
-const getBtcPayServerTemplateApp = async (db) => {
+const createBtcPayServerApp = async (storeId, data) => {
   try {
-    return await db.get(
-      "SELECT * FROM Apps WHERE Id = ?", 
-      [btcPayServerTemplateAppId]
+    const response = await fetch(
+      btcpayBaseUri + `api/v1/stores/${storeId}/apps/pos`,
+      {
+        method: "post",
+        body: JSON.stringify(data),
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
     )
-  } catch {
-    return false
-  }
-}
 
-const createBtcPayServerApp = async (db, data) => {
-  try {
-    return await db.run(
-      "INSERT INTO Apps (Id, AppType, Created, Name, StoreDataId, Settings) VALUES (?, ?, ?, ?, ?, ?)", 
-      [
-        data.Id,
-        data.AppType,
-        data.Created,
-        data.Name,
-        data.StoreDataId,
-        data.Settings
-      ]
-    )
-  } catch {
-    return false
-  }
-}
-
-const updateBtcPayServerStoreBlob = async (db, storeId, storeBlob) => {
-  try {
-    return await db.get(
-      "UPDATE Stores SET StoreBlob = ? WHERE id = ?", 
-      [
-        storeBlob,
-        storeId,
-      ]
-    )
-  } catch {
-    return false
-  }
-}
-
-const getBtcPayServerStore = async (db, storeId) => {
-  try {
-    return await db.get(
-      "SELECT * FROM Stores WHERE Id = ?", 
-      [storeId]
-    )
-  } catch {
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('createBtcPayServerApp fail', err)
     return false
   }
 }
