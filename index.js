@@ -370,13 +370,17 @@ app.post('/addStore', async (req, res) => {
   }
 
   // create user via api
-  const user = await fetchCreateUser({
+  let user = await fetchCreateUser({
     storeOwnerEmail,
   })
 
   if(!user.id) {
-    res.status(400).send({success: false, error: true, message: "error happened creating user in API"})
-    return
+    user = await fetchGetUser(storeOwnerEmail)
+
+    if(!user.id) {
+      res.status(400).send({success: false, error: true, message: "error happened creating user in API"})
+      return
+    }
   }
 
   // attach user to store via api
@@ -652,6 +656,31 @@ const fetchCreateUser = async (data) => {
     return false
   }
 }
+
+const fetchGetUser = async (email) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/users/" + email,
+      {
+        method: "get",
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetUser fail', err)
+    return false
+  }
+}
+
+
 
 const fetchCreateUserStore = async (data) => {
   try {
