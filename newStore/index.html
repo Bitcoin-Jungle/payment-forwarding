@@ -78,7 +78,7 @@
 				const rate 	  = document.querySelector("#rate").value
 				const bitcoinJungleUsername = document.querySelector("#bitcoinJungleUsername").value
 
-				return fetch("https://btcpayserver.bitcoinjungle.app/addStore", {
+				return fetch("/addStore", {
 					"method": "POST",
 					"headers": {
 						"Content-Type": "application/json; charset=utf-8"

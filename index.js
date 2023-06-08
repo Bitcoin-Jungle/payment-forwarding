@@ -31,6 +31,9 @@ sgMail.setApiKey(sendgridApiKey)
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
   '/addStore',
+  '/listStores',
+  '/updateStoreAppIds',
+  '/setTipSplit',
 ]
 
 // connect to the db
@@ -74,7 +77,7 @@ app.use((req, res, next) => {
 
 // process the webhook from BTCPay Server
 app.post('/forward', async (req, res) => {
-  console.log(req.body)  
+  console.log('webook post data', req.body)  
 
   // we only care about settled invoices
   if(req.body.type !== "InvoiceSettled") {
@@ -184,50 +187,46 @@ app.post('/forward', async (req, res) => {
 
   console.log('fee we retain', feeRetainedMilliSatoshis)
 
-  // hit the LNURL endpoint for Bitcoin Jungle
-  const lnUrl = await fetchLnUrl(store.bitcoinJungleUsername)
+  let tipMilliSatAmount = 0
+  const tipUsernames = await getTips(db, store.id)
+  if(invoice.metadata && invoice.metadata.posData && invoice.metadata.posData.tip && tipUsernames && tipUsernames.length) {
+    const tipAmount = parseFloat(invoice.metadata.posData.tip.replace(',', ''))
+    const subtotal = parseFloat(invoice.metadata.posData.subTotal.replace(',', ''))
+    const tipPercent = tipAmount / subtotal
+    tipMilliSatAmount = Math.round((milliSatAmount * tipPercent) / 1000) * 1000
 
-  if(!lnUrl) {
-    console.log('no lnurl')
-    res.sendStatus(404)
-    return
+    console.log('there was a tip!', tipMilliSatAmount)
+
+    milliSatAmount -= tipMilliSatAmount
+
+    console.log('new payout amount to business owner', milliSatAmount)
   }
 
-  if(!lnUrl.callback) {
-    console.log('no lnurl callback')
-    res.sendStatus(404)
-    return
-  }
+  console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
+  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
 
-  // use the Bitcoin Jungle LNURL endpoint to generate a bolt11 invoice for the milli-satoshi amount calculated
-  const lnUrlWithAmount = await fetchLnUrl(store.bitcoinJungleUsername, milliSatAmount)
-
-  if(!lnUrlWithAmount) {
-    console.log('no lnUrlWithAmount')
-    res.sendStatus(404)
-    return
-  }
-
-  if(lnUrlWithAmount.status == "ERROR") {
-    console.log('lnUrlWithAmount error', lnUrlWithAmount.reason)
-    res.sendStatus(404)
-    return
-  }
-
-  if(!lnUrlWithAmount.pr) {
-    console.log('no lnUrlWithAmount invoice')
-    res.sendStatus(404)
-    return
-  }
-  
-  const lnInvoice = await payLnInvoice(lnd, lnUrlWithAmount.pr)
-
-  if(lnInvoice && lnInvoice.is_confirmed) {
+  if(ownerLnInvoice) {
     // we've now forwarded the payment, mark it as such in the db
     await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
 
     // store a record of the payment in the db
-    await addPayment(db, lnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+    await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+
+    if(tipMilliSatAmount > 0) {
+      const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
+
+      let tipLnInvoice, tipUsername
+      for (var i = tipUsernames.length - 1; i >= 0; i--) {
+        tipUsername = tipUsernames[i].bitcoinJungleUsername
+        console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
+        tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount)
+
+        if(tipLnInvoice) {
+          // store a record of the payment in the db
+          await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+        }
+      }
+    }
 
     console.log('payment succeded, marked as processed, all done')
 
@@ -454,6 +453,8 @@ app.post('/addStore', async (req, res) => {
   // create the App record in the btcpayserver db
   const btcPayServerApp = await createBtcPayServerApp(store.id, btcPayServerAppData)
 
+  const storeApp = await setStoreAppId(db, store.id, btcPayServerApp.id)
+
   const emailSent = await sendEmail(storeOwnerEmail)
 
   // we're done!
@@ -463,6 +464,99 @@ app.post('/addStore', async (req, res) => {
 
 app.get('/addStore', (req, res) => {
   res.sendFile('newStore/index.html', {root: basePath})
+})
+
+app.get('/listStores', async (req, res) => {
+  const apiKey  = req.query.apiKey
+  const bitcoinJungleUsername = req.query.bitcoinJungleUsername
+
+  if(apiKey !== internalKey) {
+    res.status(400).send({success: false, error: true, message: "apiKey is incorrect"})
+    return
+  }
+
+  if(!bitcoinJungleUsername) {
+    res.status(404).send({success: false, error: true, message: "No username provided"})
+    return
+  }
+
+  const stores = await getStores(db, bitcoinJungleUsername)
+
+  if(!stores) {
+    res.status(404).send({success: false, error: true, message: "Error fetching stores"})
+    return
+  }
+
+  res.status(200).send({success: true, error: false, stores: stores})
+  return
+})
+
+app.post('/setTipSplit', async (req, res) => {
+  const apiKey  = req.body.apiKey
+  const appId = req.body.appId
+  const bitcoinJungleUsername = req.body.bitcoinJungleUsername
+  const tipUsernames = req.body.tipUsernames
+
+  if(apiKey !== internalKey) {
+    res.status(400).send({success: false, error: true, message: "apiKey is incorrect"})
+    return
+  }
+
+  if(!appId) {
+    res.status(400).send({success: false, error: true, message: "appId is required"})
+    return
+  }
+
+  if(!bitcoinJungleUsername) {
+    res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
+    return
+  }
+
+  if(!tipUsernames || !tipUsernames.length) {
+    res.status(400).send({success: false, error: true, message: "tipUsernames is a required array"})
+    return
+  }
+
+  const stores = await getStores(db, bitcoinJungleUsername)
+  const store = stores.find((store) => store.appId === appId)
+
+  if(!store) {
+    res.status(404).send({success: false, error: true, message: "store not found"})
+    return
+  }
+
+  await clearTips(db, store.id)
+
+  for (var i = tipUsernames.length - 1; i >= 0; i--) {
+    await setTip(db, store.id, tipUsernames[i])
+  }
+
+  res.status(200).send({success: true, error: false})
+  return
+})
+
+app.get('/updateStoreAppIds', async (req, res) => {
+  const stores = await getAllStores(db)
+  let store, app
+
+  for (var i = stores.length - 1; i >= 0; i--) {
+    store = stores[i]
+
+    console.log('store', store.storeId, store.bitcoinJungleUsername)
+
+    const apps = await fetchGetApps(store.storeId)
+
+    for(var y = apps.length - 1; y >= 0; y--) {
+      app = apps[y]
+
+      console.log('app', app.id)
+
+      await setStoreAppId(db, store.storeId, app.id)
+    }
+  }
+
+  res.status(200).send('ok')
+  return
 })
 
 app.listen(port, () => {
@@ -704,7 +798,29 @@ const fetchGetUser = async (email) => {
   }
 }
 
+const fetchGetApps = async (storeId) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + storeId + "/apps",
+      {
+        method: "get",
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
 
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetApps fail', err)
+    return false
+  }
+}
 
 const fetchCreateUserStore = async (data) => {
   try {
@@ -877,6 +993,27 @@ const getStore = async (db, storeId) => {
   }
 }
 
+const getAllStores = async (db) => {
+  try {
+    return await db.all(
+      "SELECT * FROM stores",
+    )
+  } catch {
+    return false
+  }
+}
+
+const getStores = async (db, bitcoinJungleUsername) => {
+  try {
+    return await db.all(
+      "SELECT * FROM stores WHERE bitcoinJungleUsername = ?",
+      [bitcoinJungleUsername] 
+    )
+  } catch {
+    return false
+  }
+}
+
 const getInvoice = async (db, storeId, invoiceId) => {
   try {
     return await db.get(
@@ -935,6 +1072,25 @@ const addPayment = async(db, paymentId, storeId, invoiceId, timestamp, feeRetain
   }
 }
 
+const addTipPayment = async(db, paymentId, storeId, invoiceId, timestamp, bitcoinJungleUsername, milliSatAmount) => {
+  try {
+    return await db.run(
+      "INSERT INTO tip_payments (paymentId, storeId, invoiceId, timestamp, bitcoinJungleUsername, milliSatAmount) VALUES (?, ?, ?, ?, ?, ?)", 
+      [
+        paymentId,
+        storeId,
+        invoiceId,
+        timestamp,
+        bitcoinJungleUsername,
+        milliSatAmount,
+      ]
+    )
+  } catch(e) {
+    console.log(e)
+    return false
+  }
+}
+
 const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
   try {
     return await db.run(
@@ -950,3 +1106,98 @@ const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
     return false
   }
 }
+
+const setStoreAppId = async (db, storeId, appId) => {
+  try {
+    return await db.run(
+      "UPDATE stores SET appId = ? WHERE storeId = ?",
+      [
+        appId,
+        storeId,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const clearTips = async (db, store_id) => {
+  try {
+    return await db.run(
+      "DELETE FROM tips WHERE store_id = ?",
+      [
+        store_id,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const setTip = async (db, store_id, bitcoinJungleUsername) => {
+  try {
+    return await db.run(
+      "INSERT INTO tips (store_id, bitcoinJungleUsername) VALUES (?, ?)", 
+      [
+        store_id,
+        bitcoinJungleUsername
+      ]
+    )
+  } catch(err) {
+    console.log(err)
+    return false
+  }
+}
+
+const getTips = async (db, store_id) => {
+  try {
+    return await db.all(
+      "SELECT * FROM tips WHERE store_id = ?",
+      [
+        store_id,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const payLnurl = async (username, amount) => {
+  // hit the LNURL endpoint for Bitcoin Jungle
+  const lnUrl = await fetchLnUrl(username)
+
+  if(!lnUrl) {
+    console.log('no lnurl')
+    return false
+  }
+
+  if(!lnUrl.callback) {
+    console.log('no lnurl callback')
+    return false
+  }
+
+  // use the Bitcoin Jungle LNURL endpoint to generate a bolt11 invoice for the milli-satoshi amount calculated
+  const lnUrlWithAmount = await fetchLnUrl(username, amount)
+
+  if(!lnUrlWithAmount) {
+    console.log('no lnUrlWithAmount')
+    return false
+  }
+
+  if(lnUrlWithAmount.status == "ERROR") {
+    return false
+  }
+
+  if(!lnUrlWithAmount.pr) {
+    return false
+  }
+  
+  const lnInvoice = await payLnInvoice(lnd, lnUrlWithAmount.pr)
+
+  if(lnInvoice && lnInvoice.is_confirmed) {
+    return lnInvoice
+  }
+
+  return false
+}
+
