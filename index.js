@@ -598,6 +598,13 @@ const fetchCreateStore = async (data) => {
           customLogo: data.customLogo,
           customCSS: data.customCSS,
           lightningAmountInSatoshi: true,
+
+          checkoutType: "V2",
+          celebratePayment: true,
+          showStoreHeader: true,
+          showPayInWalletButton: false,
+          lazyPaymentMethods: true,
+          autoDetectLanguage: true,
         }),
         headers: {
           "Authorization": "token " + btcpayApiKey,
