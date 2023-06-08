@@ -474,7 +474,7 @@ const sendEmail = async (storeOwnerEmail) => {
     to: storeOwnerEmail,
     from: 'noreply@bitcoinjungle.app',
     subject: 'New Bitcoin Point of Sale Created',
-    html: 'Please visit <a href="https://btcpayserver.bitcoinjungle.app/login/forgot-password">btcpayserver.bitcoinjungle.app</a> to create a password and log into the Point of Sale Admin system.',
+    html: 'Please visit <a href="https://btcpayserver.bitcoinjungle.app/login/forgot-password">btcpayserver.bitcoinjungle.app</a> and enter ' + storeOwnerEmail + ' to create a password and log into the Point of Sale Admin system.',
   }
 
   return sgMail.send(msg)
