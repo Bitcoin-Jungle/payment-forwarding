@@ -714,7 +714,7 @@ const fetchCreateUserStore = async (data) => {
         method: "post",
         body: JSON.stringify({
           userId: data.userId,
-          role: "Guest",
+          role: "StoreOwner",
         }),
         headers: {
           "Authorization": "token " + btcpayApiKey,
