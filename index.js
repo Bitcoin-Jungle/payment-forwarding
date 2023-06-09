@@ -31,7 +31,6 @@ sgMail.setApiKey(sendgridApiKey)
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
   '/addStore',
-  '/listStores',
   '/updateStoreAppIds',
   '/setTipSplit',
 ]
@@ -483,31 +482,6 @@ app.post('/addStore', async (req, res) => {
 
 app.get('/addStore', (req, res) => {
   res.sendFile('newStore/index.html', {root: basePath})
-})
-
-app.get('/listStores', async (req, res) => {
-  const apiKey  = req.query.apiKey
-  const bitcoinJungleUsername = req.query.bitcoinJungleUsername
-
-  if(apiKey !== internalKey) {
-    res.status(400).send({success: false, error: true, message: "apiKey is incorrect"})
-    return
-  }
-
-  if(!bitcoinJungleUsername) {
-    res.status(404).send({success: false, error: true, message: "No username provided"})
-    return
-  }
-
-  const stores = await getStores(db, bitcoinJungleUsername)
-
-  if(!stores) {
-    res.status(404).send({success: false, error: true, message: "Error fetching stores"})
-    return
-  }
-
-  res.status(200).send({success: true, error: false, stores: stores})
-  return
 })
 
 app.post('/setTipSplit', async (req, res) => {
