@@ -31,6 +31,8 @@ sgMail.setApiKey(sendgridApiKey)
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
   '/addStore',
+  '/tipSplit',
+  '/getTipConfiguration',
   '/updateStoreAppIds',
   '/setTipSplit',
 ]
@@ -48,6 +50,9 @@ const {lnd} = authenticatedLndGrpc({
   macaroon: lndMacaroon,
   socket: lndIpAndPort,
 })
+
+
+app.use('/tipSplit', express.static('./tip-split/build'));
 
 // parse as JSON, but also keep the rawBody for HMAC verification
 app.use(bodyParser.json({
@@ -482,6 +487,19 @@ app.post('/addStore', async (req, res) => {
 
 app.get('/addStore', (req, res) => {
   res.sendFile('newStore/index.html', {root: basePath})
+})
+
+app.get('/getTipConfiguration', async (req, res) => {
+  const appId = req.query.appId
+
+  if(!appId) {
+    res.status(400).send({success: false, error: true, message: "appId is required"})
+    return
+  }
+
+  const data = await getTipsByAppId(db, appId)
+
+  res.status(200).send({success: true, error: false, data: data})
 })
 
 app.post('/setTipSplit', async (req, res) => {
@@ -1148,6 +1166,24 @@ const getTips = async (db, store_id) => {
       "SELECT * FROM tips WHERE store_id = ?",
       [
         store_id,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const getTipsByAppId = async (db, appId) => {
+  try {
+    return await db.all(
+      `
+      SELECT t.* 
+      FROM tips t 
+      JOIN stores s ON s.id = t.store_id
+      WHERE s.appId = ?
+      `,
+      [
+        appId,
       ]
     )
   } catch {
