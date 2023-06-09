@@ -301,6 +301,7 @@ app.post('/addStore', async (req, res) => {
   const defaultLanguage = req.body.defaultLanguage
   const rate    = req.body.rate
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
+  const tipSplit = req.body.tipSplit
 
   // these are needed but not user editable inputs
   const paymentTolerance = 1
@@ -348,6 +349,17 @@ app.post('/addStore', async (req, res) => {
   if(!bitcoinJungleUsername) {
     res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
     return
+  }
+
+  if(tipSplit && tipSplit.length) {
+    for (var i = tipSplit.length - 1; i >= 0; i--) {
+      const usernameExists = await fetchGetBitcoinJungleUsername(tipSplit[i])
+
+      if(!usernameExists) {
+        res.status(400).send({success: false, error: true, message: tipSplit[i] + " is not a valid username"})
+        return
+      }
+    }
   }
 
   // create store via api
@@ -454,6 +466,13 @@ app.post('/addStore', async (req, res) => {
   const btcPayServerApp = await createBtcPayServerApp(store.id, btcPayServerAppData)
 
   const storeApp = await setStoreAppId(db, store.id, btcPayServerApp.id)
+
+  if(tipSplit && tipSplit.length) {
+    const internalStore = await getStore(db, store.id)
+    for (var i = tipSplit.length - 1; i >= 0; i--) {
+      await setTip(db, internalStore.id, tipSplit[i])
+    }
+  }
 
   const emailSent = await sendEmail(storeOwnerEmail)
 
@@ -1201,3 +1220,34 @@ const payLnurl = async (username, amount) => {
   return false
 }
 
+const fetchGetBitcoinJungleUsername = async (username) => {
+  try {
+    const response = await fetch(
+      "https://api.mainnet.bitcoinjungle.app/graphql",
+      {
+        method: "POST",
+        body: "{\"operationName\":\"userDefaultWalletId\",\"variables\":{\"username\":\"" + username + "\"},\"query\":\"query userDefaultWalletId($username: Username!) {\\n  recipientWalletId: userDefaultWalletId(username: $username)\\n}\"}",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+
+    const data = await response.json()
+
+    if(!data || !data.data || !data.data.recipientWalletId) {
+      return false
+    }
+
+    return true
+
+  } catch (err) {
+    console.log('fetchGetBitcoinJungleUsername fail', err)
+    return false
+  }
+}
