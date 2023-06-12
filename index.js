@@ -503,23 +503,11 @@ app.get('/getTipConfiguration', async (req, res) => {
 })
 
 app.post('/setTipSplit', async (req, res) => {
-  const apiKey  = req.body.apiKey
   const appId = req.body.appId
-  const bitcoinJungleUsername = req.body.bitcoinJungleUsername
   const tipUsernames = req.body.tipUsernames
-
-  if(apiKey !== internalKey) {
-    res.status(400).send({success: false, error: true, message: "apiKey is incorrect"})
-    return
-  }
 
   if(!appId) {
     res.status(400).send({success: false, error: true, message: "appId is required"})
-    return
-  }
-
-  if(!bitcoinJungleUsername) {
-    res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
     return
   }
 
@@ -528,12 +516,22 @@ app.post('/setTipSplit', async (req, res) => {
     return
   }
 
-  const stores = await getStores(db, bitcoinJungleUsername)
-  const store = stores.find((store) => store.appId === appId)
+  const store = await getStoreByAppId(db, appId)
 
   if(!store) {
     res.status(404).send({success: false, error: true, message: "store not found"})
     return
+  }
+
+  if(tipUsernames && tipUsernames.length) {
+    for (var i = tipUsernames.length - 1; i >= 0; i--) {
+      const usernameExists = await fetchGetBitcoinJungleUsername(tipUsernames[i])
+
+      if(!usernameExists) {
+        res.status(400).send({success: false, error: true, message: tipUsernames[i] + " is not a valid username"})
+        return
+      }
+    }
   }
 
   await clearTips(db, store.id)
@@ -542,7 +540,9 @@ app.post('/setTipSplit', async (req, res) => {
     await setTip(db, store.id, tipUsernames[i])
   }
 
-  res.status(200).send({success: true, error: false})
+  const data = await getTipsByAppId(db, appId)
+
+  res.status(200).send({success: true, error: false, data: data})
   return
 })
 
@@ -998,6 +998,17 @@ const getStore = async (db, storeId) => {
     return await db.get(
       "SELECT * FROM stores WHERE storeId = ?", 
       [storeId]
+    )
+  } catch {
+    return false
+  }
+}
+
+const getStoreByAppId = async (db, appId) => {
+  try {
+    return await db.get(
+      "SELECT * FROM stores WHERE appId = ?", 
+      [appId]
     )
   } catch {
     return false
