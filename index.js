@@ -52,7 +52,7 @@ const {lnd} = authenticatedLndGrpc({
 })
 
 
-app.use('/tipSplit/*', express.static('./tip-split/build'));
+app.use('/tipSplit', express.static('./tip-split/build'));
 
 // parse as JSON, but also keep the rawBody for HMAC verification
 app.use(bodyParser.json({
