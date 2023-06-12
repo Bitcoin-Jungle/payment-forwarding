@@ -63,8 +63,12 @@ app.use(bodyParser.json({
 
 // HMAC verification middleware
 app.use((req, res, next) => {
-  console.log(req.url.split("?")[0])
   if(noAuthPaths.indexOf(req.url.split("?")[0]) !== -1) {
+    next()
+    return
+  }
+
+  if(noAuthPaths.indexOf(req.url.split("?")[0].replace(/\/$/, "")) !== -1) {
     next()
     return
   }
