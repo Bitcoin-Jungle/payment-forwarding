@@ -32,6 +32,7 @@ sgMail.setApiKey(sendgridApiKey)
 const noAuthPaths = [
   '/addStore',
   '/tipSplit',
+  '/tipLnurl',
   '/getTipConfiguration',
   '/updateStoreAppIds',
   '/setTipSplit',
@@ -211,8 +212,10 @@ app.post('/forward', async (req, res) => {
     console.log('new payout amount to business owner', milliSatAmount)
   }
 
-  console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
-  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
+  if(milliSatAmount > 0) {
+    console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
+    const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
+  }
 
   if(ownerLnInvoice) {
     // we've now forwarded the payment, mark it as such in the db
@@ -551,6 +554,72 @@ app.post('/setTipSplit', async (req, res) => {
   return
 })
 
+app.get('/tipLnurl', async (req, res) => {
+  const appId = req.query.appId
+  const amount = req.query.amount
+
+  if(!appId || !appId.length) {
+    return res.status(200).send({
+      status: "ERROR",
+      reason: "Invalid LNURL code",
+    })
+  }
+
+  const app = await fetchGetApp(appId)
+
+  if(!app) {
+    return res.status(200).send({
+      status: "ERROR",
+      reason: "App not found",
+    })
+  }
+
+  if(amount) {
+    const amountSats = Math.round(parseInt(amount, 10) / 1000)
+    if ((amountSats * 1000).toString() !== amount) {
+      return res.status(200).send({
+        status: "ERROR",
+        reason: "Millisatoshi amount is not supported, please send a value in full sats.",
+      })
+    }
+
+    const invoice = await fetchCreateInvoice(app.storeId, amountSats)
+
+    if(!invoice) {
+      return res.status(200).send({
+        status: "ERROR",
+        reason: "Error creating invoice.",
+      })
+    }
+
+    const invoicePayments = await fetchInvoicePayments(app.storeId, invoice.id)
+    const lightningInvoice = invoicePayments.find((el) => el.paymentMethod === 'BTC-LightningNetwork')
+
+    if(!lightningInvoice) {
+      return res.status(200).send({
+        status: "ERROR",
+        reason: "Error finding invoice.",
+      })
+    }
+
+    return res.status(200).send({
+      pr: lightningInvoice.destination,
+    })
+
+  }
+
+  return res.status(200).send({
+    callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl?appId=${appId}`,
+    metadata: [
+      ["text/plain", `Tip for ${app.name}`]
+    ],
+    tag: "payRequest",
+    minSendable: 1000,
+    maxSendable: 612000000000,
+    commentAllowed: 2000
+  })
+})
+
 app.get('/updateStoreAppIds', async (req, res) => {
   const stores = await getAllStores(db)
   let store, app
@@ -734,6 +803,46 @@ const fetchCreateStore = async (data) => {
   }
 }
 
+const fetchCreateInvoice = async (storeId, amountSats) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + storeId + "/invoices",
+      {
+        method: "post",
+        body: JSON.stringify({
+          amount: amountSats,
+          currency: "SATS",
+          checkout: {
+            paymentMethods: ["BTC-LightningNetwork"],
+            defaultPaymentMethod: "BTC-LightningNetwork",
+            lazyPaymentMethods: false,
+          },
+          metadata: {
+            posData: {
+              tip: ""+amountSats.toFixed(2),
+              subTotal: ""+amountSats.toFixed(2),
+              total: ""+amountSats.toFixed(2),
+            }
+          },
+        }),
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchCreateInvoice fail', err)
+    return false
+  }
+}
+
 const updateBtcPayServerRate = async (storeId, rateScript) => {
   try {
     const response = await fetch(
@@ -834,6 +943,30 @@ const fetchGetApps = async (storeId) => {
     return await response.json()
   } catch (err) {
     console.log('fetchGetApps fail', err)
+    return false
+  }
+}
+
+const fetchGetApp = async (appId) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/apps/" + appId,
+      {
+        method: "get",
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetApp fail', err)
     return false
   }
 }

@@ -1,12 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { QRCode } from "react-qrcode-logo"
+import { bech32 } from "bech32"
+import { Buffer } from "buffer"
+import ReactToPrint from "react-to-print"
 
 import './App.css';
 
 function App({ appId }) {
+  const componentRef = useRef(null)
 
   const [tipSplit, setTipSplit] = useState([])
   const [newUsername, setNewUsername] = useState("")
   const [loading, setLoading] = useState(false)
+  const [mode, setMode] = useState(null)
 
   useEffect(() => {
     const fetchData = async (appId) => {
@@ -102,29 +108,86 @@ function App({ appId }) {
       <header className="App-header">
         <h3>Bitcoin Point of Sale Tip Configuration</h3>
 
-        {tipSplit.map((el) => {
-          return (
-            <div key={el.id}>
-              <button disabled={loading} onClick={() => deleteUsername(el)}>X</button>
-              {" "}
-              {el.bitcoinJungleUsername}
+        <div style={{border: "1px solid white", padding: 10, borderRadius: 10, marginBottom: 10}}>
+          <button onClick={() => setMode("split")}>
+            Tip Split
+          </button>
+          {" "}
+          <button onClick={() => setMode("qrcode")}>
+            Tip QR Code
+          </button>
+        </div>
+
+        {mode === "split" && 
+          <div>
+            {tipSplit.map((el) => {
+              return (
+                <div key={el.id}>
+                  <button disabled={loading} onClick={() => deleteUsername(el)}>X</button>
+                  {" "}
+                  {el.bitcoinJungleUsername}
+                </div>
+              )
+            })}
+
+            <br />
+
+            <input 
+              placeholder="Add new user"
+              type="text"
+              value={newUsername}
+              onKeyDown={handleNewUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              disabled={loading} />
+
+            <br />
+
+            {loading &&
+              <h5 style={{margin: 0}}>Loading ...</h5>
+            }
+          </div>
+        }
+
+        {mode === "qrcode" &&
+          <div>
+
+            <div ref={componentRef}>
+              <QRCode
+                value={
+                  bech32.encode(
+                    "lnurl",
+                    bech32.toWords(
+                      Buffer.from(
+                        `${window.location.protocol}//${window.location.hostname}/tipLnurl?appId=${appId}`,
+                        "utf8",
+                      ),
+                    ),
+                    1500,
+                  ).toUpperCase()
+                }
+                size={320}
+                logoImage={"./BJQRLogo.png"}
+                logoWidth={100}
+                id="react-qrcode-logo"
+              />
             </div>
-          )
-        })}
-        <br />
-        <input 
-          placeholder="Add new user"
-          type="text"
-          value={newUsername}
-          onKeyDown={handleNewUsername}
-          onChange={(e) => setNewUsername(e.target.value)}
-          disabled={loading} />
 
-          <br />
+            <div style={{border: "1px solid white", padding: 10, borderRadius: 10, marginTop: 10}}>
+              <ReactToPrint
+                trigger={() => <button>Print QR Code</button>}
+                content={() => componentRef.current}
+                onBeforeGetContent={() => {
+                  const qrcodeLogo = document.getElementById("react-qrcode-logo")
+                  if (qrcodeLogo) {
+                    qrcodeLogo.style.height = "256px"
+                    qrcodeLogo.style.width = "256px"
+                  }
+                }}
+              />
+            </div>
 
-          {loading &&
-            <h5 style={{margin: 0}}>Loading ...</h5>
-          }
+          </div>
+        }
       </header>
     </div>
   );
