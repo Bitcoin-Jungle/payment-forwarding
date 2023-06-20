@@ -905,7 +905,7 @@ const fetchCreateInvoice = async (storeId, amountSats, comment) => {
           metadata: {
             posData: {
               tip: ""+amountSats.toFixed(2),
-              subTotal: "0.00",
+              subTotal: ""+amountSats.toFixed(2),
               total: ""+amountSats.toFixed(2),
             },
             itemDesc: comment || "",
