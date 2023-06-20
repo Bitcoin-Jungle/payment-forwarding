@@ -605,13 +605,18 @@ app.get('/tipLnurl', async (req, res) => {
 
     return res.status(200).send({
       pr: lightningInvoice.destination,
+      routes: [],
+      successAction: {
+        tag: "message",
+        message: "Thank you for the tip!",
+      }
     })
-
   }
 
   return res.status(200).send({
     callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl?appId=${appId}`,
     metadata: JSON.stringify([
+      ["text/identifier", `${appId}@btcpayserver.bitcoinjungle.app`],
       ["text/plain", `Tip for ${app.name}`]
     ]),
     tag: "payRequest",
