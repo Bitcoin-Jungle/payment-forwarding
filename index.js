@@ -557,6 +557,7 @@ app.post('/setTipSplit', async (req, res) => {
 app.get('/tipLnurl', async (req, res) => {
   const appId = req.query.appId
   const amount = req.query.amount
+  const comment = req.query.comment
 
   if(!appId || !appId.length) {
     return res.status(200).send({
@@ -583,7 +584,7 @@ app.get('/tipLnurl', async (req, res) => {
       })
     }
 
-    const invoice = await fetchCreateInvoice(app.storeId, amountSats)
+    const invoice = await fetchCreateInvoice(app.storeId, amountSats, comment)
 
     if(!invoice) {
       return res.status(200).send({
@@ -610,9 +611,9 @@ app.get('/tipLnurl', async (req, res) => {
 
   return res.status(200).send({
     callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl?appId=${appId}`,
-    metadata: [
+    metadata: JSON.stringify([
       ["text/plain", `Tip for ${app.name}`]
-    ],
+    ]),
     tag: "payRequest",
     minSendable: 1000,
     maxSendable: 612000000000,
@@ -803,7 +804,7 @@ const fetchCreateStore = async (data) => {
   }
 }
 
-const fetchCreateInvoice = async (storeId, amountSats) => {
+const fetchCreateInvoice = async (storeId, amountSats, comment) => {
   try {
     const response = await fetch(
       btcpayBaseUri + "api/v1/stores/" + storeId + "/invoices",
@@ -822,7 +823,8 @@ const fetchCreateInvoice = async (storeId, amountSats) => {
               tip: ""+amountSats.toFixed(2),
               subTotal: ""+amountSats.toFixed(2),
               total: ""+amountSats.toFixed(2),
-            }
+            },
+            itemDesc: comment || "",
           },
         }),
         headers: {
