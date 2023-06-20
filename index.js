@@ -212,18 +212,18 @@ app.post('/forward', async (req, res) => {
     console.log('new payout amount to business owner', milliSatAmount)
   }
 
-  if(milliSatAmount > 0) {
-    console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
-    const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
-  }
+  console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
+  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
 
   if(ownerLnInvoice) {
     // we've now forwarded the payment, mark it as such in the db
     await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
 
-    // store a record of the payment in the db
-    await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
-
+    if(ownerLnInvoice.id) {
+      // store a record of the payment in the db
+      await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+    }
+    
     if(tipMilliSatAmount > 0) {
       const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
 
@@ -1343,6 +1343,10 @@ const getTipsByAppId = async (db, appId) => {
 const payLnurl = async (username, amount) => {
   // hit the LNURL endpoint for Bitcoin Jungle
   const lnUrl = await fetchLnUrl(username)
+
+  if(!amount || amount == 0) {
+    return true
+  }
 
   if(!lnUrl) {
     console.log('no lnurl')
