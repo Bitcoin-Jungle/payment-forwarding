@@ -589,6 +589,24 @@ app.get('/tipLnurl/:appId', async (req, res) => {
     })
   }
 
+  const internalStore = await getStoreByAppId(db, appId)
+
+  if(!internalStore) {
+    return res.status(200).send({
+      status: "ERROR",
+      reason: "Store not found",
+    })
+  }
+
+  const store = await fetchGetStore(internalStore.storeId)
+
+  if(!store) {
+    return res.status(200).send({
+      status: "ERROR",
+      reason: "Store not found",
+    })
+  }
+
   if(amount) {
     const amountSats = Math.round(parseInt(amount, 10) / 1000)
     if ((amountSats * 1000).toString() !== amount) {
@@ -638,8 +656,7 @@ app.get('/tipLnurl/:appId', async (req, res) => {
   return res.status(200).send({
     callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl/${appId}`,
     metadata: JSON.stringify([
-      ["text/identifier", `${appId}@btcpayserver.bitcoinjungle.app`],
-      ["text/plain", `Tip for ${app.name}`]
+      ["text/plain", `Paid to ${store.name}`]
     ]),
     tag: "payRequest",
     minSendable: 1000,
@@ -1222,6 +1239,27 @@ const fetchGetAllStores = async () => {
     return await response.json()
   } catch (err) {
     console.log('fetchGetAllStores fail', err)
+    return false
+  }
+}
+
+const fetchGetStore = async (storeId) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + storeId,
+      {
+        headers: {
+          "Authorization": "token " + btcpayApiKey
+        }
+      }
+    )
+
+    if (!response.ok) {
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetStore fail', err)
     return false
   }
 }
