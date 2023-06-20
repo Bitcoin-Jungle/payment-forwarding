@@ -158,7 +158,7 @@ function App({ appId }) {
                     "lnurl",
                     bech32.toWords(
                       Buffer.from(
-                        `${window.location.protocol}//${window.location.hostname}/tipLnurl?appId=${appId}`,
+                        `${window.location.protocol}//${window.location.hostname}/tipLnurl/${appId}`,
                         "utf8",
                       ),
                     ),

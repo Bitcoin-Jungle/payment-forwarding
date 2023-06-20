@@ -554,8 +554,8 @@ app.post('/setTipSplit', async (req, res) => {
   return
 })
 
-app.get('/tipLnurl', async (req, res) => {
-  const appId = req.query.appId
+app.get('/tipLnurl/:appId', async (req, res) => {
+  const appId = req.params.appId
   const amount = req.query.amount
   const comment = req.query.comment
 
@@ -614,7 +614,7 @@ app.get('/tipLnurl', async (req, res) => {
   }
 
   return res.status(200).send({
-    callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl?appId=${appId}`,
+    callback: `https://btcpayserver.bitcoinjungle.app/tipLnurl/${appId}`,
     metadata: JSON.stringify([
       ["text/identifier", `${appId}@btcpayserver.bitcoinjungle.app`],
       ["text/plain", `Tip for ${app.name}`]
