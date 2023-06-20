@@ -35,6 +35,7 @@ const noAuthPaths = [
   '/tipLnurl',
   '/getTipConfiguration',
   '/updateStoreAppIds',
+  '/enableLnurl',
   '/setTipSplit',
 ]
 
@@ -442,6 +443,14 @@ app.post('/addStore', async (req, res) => {
     enabled: true,
   })
 
+  const lnUrlPaymentMethod = await fetchCreateLnUrlPaymentMethod({
+    storeId: store.id,
+    cryptoCode: "BTC",
+    enabled: true,
+    useBech32Scheme: true,
+    lud12Enabled: false,
+  })
+
   // create on-chain payment method via API
   const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod({
     storeId: store.id,
@@ -590,7 +599,6 @@ app.get('/tipLnurl/:appId', async (req, res) => {
     }
 
     const invoice = await fetchCreateInvoice(app.storeId, amountSats, comment)
-
     if(!invoice) {
       return res.status(200).send({
         status: "ERROR",
@@ -599,17 +607,26 @@ app.get('/tipLnurl/:appId', async (req, res) => {
     }
 
     const invoicePayments = await fetchInvoicePayments(app.storeId, invoice.id)
-    const lightningInvoice = invoicePayments.find((el) => el.paymentMethod === 'BTC-LightningNetwork')
+    const lnurlPaymentMethod = invoicePayments.find((el) => el.paymentMethod === 'BTC-LNURLPAY')
 
-    if(!lightningInvoice) {
+    if(!lnurlPaymentMethod) {
       return res.status(200).send({
         status: "ERROR",
         reason: "Error finding invoice.",
       })
     }
 
+    const lightningInvoice = await fetchBtcPayServerLnUrl(invoice.id, Math.round(amountSats * 1000))
+
+    if(!lightningInvoice) {
+      return res.status(200).send({
+        status: "ERROR",
+        reason: "Error loading invoice.",
+      })
+    }
+
     return res.status(200).send({
-      pr: lightningInvoice.destination,
+      pr: lightningInvoice.pr,
       routes: [],
       successAction: {
         tag: "message",
@@ -657,6 +674,30 @@ app.get('/updateStoreAppIds', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Example app listening at http://localhost:${port}`)
+})
+
+app.get('/enableLnurl', async (req, res) => {
+  const stores = await fetchGetAllStores()
+  let store, lnUrlPaymentMethod
+
+  for (var i = stores.length - 1; i >= 0; i--) {
+    store = stores[i]
+
+    console.log('store', store.id)
+
+    lnUrlPaymentMethod = await fetchCreateLnUrlPaymentMethod({
+      storeId: store.id,
+      cryptoCode: "BTC",
+      enabled: true,
+      useBech32Scheme: true,
+      lud12Enabled: false,
+    })
+
+    console.log('lnUrlPaymentMethod', lnUrlPaymentMethod)
+  }
+
+  res.status(200).send('ok')
+  return
 })
 
 const sendEmail = async (storeOwnerEmail) => {
@@ -751,6 +792,22 @@ const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount) => {
   }
 }
 
+const fetchBtcPayServerLnUrl = async (invoiceId, milliSatAmount) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "BTC/UILNURL/pay/i/" + invoiceId + (milliSatAmount ? "?amount=" + milliSatAmount : "")
+    )
+
+    if (!response.ok) {
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchLnUrl fail', err)
+    return false
+  }
+}
+
 const fetchInvoice = async (storeId, invoiceId) => {
   try {
     const response = await fetch(
@@ -824,14 +881,14 @@ const fetchCreateInvoice = async (storeId, amountSats, comment) => {
           amount: amountSats,
           currency: "SATS",
           checkout: {
-            paymentMethods: ["BTC-LightningNetwork"],
-            defaultPaymentMethod: "BTC-LightningNetwork",
+            paymentMethods: ["BTC-LNURLPAY"],
+            defaultPaymentMethod: "BTC-LNURLPAY",
             lazyPaymentMethods: false,
           },
           metadata: {
             posData: {
               tip: ""+amountSats.toFixed(2),
-              subTotal: ""+amountSats.toFixed(2),
+              subTotal: "0.00",
               total: ""+amountSats.toFixed(2),
             },
             itemDesc: comment || "",
@@ -1068,6 +1125,36 @@ const fetchCreateLnPaymentMethod = async (data) => {
   }
 }
 
+const fetchCreateLnUrlPaymentMethod = async (data) => {
+  try {
+    const response = await fetch(
+
+      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LNURLPAY/" + data.cryptoCode,
+      {
+        method: "put",
+        body: JSON.stringify({
+          useBech32Scheme: data.useBech32Scheme,
+          lud12Enabled: data.lud12Enabled,
+          enabled: data.enabled,
+        }),
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      console.log(response.status, response.statusText)
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchCreateLnUrlPaymentMethod fail', err)
+    return false
+  }
+}
+
 const fetchCreateOnChainPaymentMethod = async (data) => {
   try {
     const response = await fetch(
@@ -1114,6 +1201,27 @@ const fetchInvoicePayments = async (storeId, invoiceId) => {
     return await response.json()
   } catch (err) {
     console.log('fetchInvoicePayments fail', err)
+    return false
+  }
+}
+
+const fetchGetAllStores = async () => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores",
+      {
+        headers: {
+          "Authorization": "token " + btcpayApiKey
+        }
+      }
+    )
+
+    if (!response.ok) {
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetAllStores fail', err)
     return false
   }
 }
