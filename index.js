@@ -74,6 +74,11 @@ app.use((req, res, next) => {
     return
   }
 
+  if(noAuthPaths.indexOf('/' + req.url.split("/")[1].replace(/\/$/, "")) !== -1) {
+    next()
+    return
+  }
+
   const test = crypto.createHmac('sha256', webhookSecret).update(req.rawBody).digest("hex")
   const sig  = req.headers['btcpay-sig'].replace('sha256=', '')
 
