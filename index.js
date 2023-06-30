@@ -371,11 +371,13 @@ app.post('/addStore', async (req, res) => {
 
   if(tipSplit && tipSplit.length) {
     for (var i = tipSplit.length - 1; i >= 0; i--) {
-      const usernameExists = await fetchGetBitcoinJungleUsername(tipSplit[i])
+      if(tipSplit[i] != "") {
+        const usernameExists = await fetchGetBitcoinJungleUsername(tipSplit[i])
 
-      if(!usernameExists) {
-        res.status(400).send({success: false, error: true, message: tipSplit[i] + " is not a valid username"})
-        return
+        if(!usernameExists) {
+          res.status(400).send({success: false, error: true, message: tipSplit[i] + " is not a valid username"})
+          return
+        }
       }
     }
   }
@@ -496,7 +498,9 @@ app.post('/addStore', async (req, res) => {
   if(tipSplit && tipSplit.length) {
     const internalStore = await getStore(db, store.id)
     for (var i = tipSplit.length - 1; i >= 0; i--) {
-      await setTip(db, internalStore.id, tipSplit[i])
+      if(tipSplit[i] !== "") {
+        await setTip(db, internalStore.id, tipSplit[i])
+      }
     }
   }
 
