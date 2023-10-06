@@ -19,7 +19,6 @@ const lndTlsCert = process.env.lndTlsCert
 const lndMacaroon = process.env.lndMacaroon
 const lndIpAndPort = process.env.lndIpAndPort
 const onChainZpub = process.env.onChainZpub
-const exchangeRateApiKey = process.env.exchangeRateApiKey
 const basePath = process.env.basePath
 const defaultLogoUri = process.env.defaultLogoUri
 const defaultCssUri = process.env.defaultCssUri
@@ -206,8 +205,8 @@ app.post('/forward', async (req, res) => {
   let tipMilliSatAmount = 0
   const tipUsernames = await getTips(db, store.id)
   if(invoice.metadata && invoice.metadata.posData && invoice.metadata.posData.tip && tipUsernames && tipUsernames.length) {
-    const tipAmount = parseFloat(invoice.metadata.posData.tip.replace(',', ''))
-    const subtotal = parseFloat(invoice.metadata.posData.subTotal.replace(',', ''))
+    const tipAmount = parseFloat((typeof invoice.metadata.posData.tip === 'string' ? invoice.metadata.posData.tip.replace(',', '') : invoice.metadata.posData.tip))
+    const subtotal = parseFloat((typeof invoice.metadata.posData.subTotal === 'string' ? invoice.metadata.posData.subTotal.replace(',', '') : invoice.metadata.posData.subTotal))
     const tipPercent = tipAmount / subtotal
     tipMilliSatAmount = Math.round((milliSatAmount * tipPercent) / 1000) * 1000
 
@@ -314,7 +313,7 @@ app.post('/addStore', async (req, res) => {
   // input vars
   const apiKey  = req.body.apiKey
   const storeName = req.body.storeName
-  const storeOwnerEmail = req.body.storeOwnerEmail
+  const storeOwnerEmail = (req.body.storeOwnerEmail ? req.body.storeOwnerEmail.trim() : null)
   const defaultCurrency = req.body.defaultCurrency
   const defaultLanguage = req.body.defaultLanguage
   const rate    = req.body.rate
@@ -470,11 +469,8 @@ app.post('/addStore', async (req, res) => {
     return
   }
 
-  // fetch current exchange rate for store's currency
-  const currentExchangeRate = await fetchExchangeRate(defaultCurrency)
-
   // update store rate script for CRC support
-  const rateScript = `BTC_${defaultCurrency.toUpperCase()} = coingecko(BTC_USD) * ${currentExchangeRate};`
+  const rateScript = `BTC_CRC = bitcoinjungle(BTC_CRC);\nBTC_USD = bitcoinjungle(BTC_USD);`
   const btcPayServerRate = await updateBtcPayServerRate(store.id, rateScript)
 
   // customize the Data we need for the App
@@ -738,35 +734,6 @@ const sendEmail = async (storeOwnerEmail) => {
 
       return false
     })
-}
-
-const fetchExchangeRate = async (currency) => {
-  try {
-    const response = await fetch(
-      `https://api.exchangeratesapi.io/v1/latest?access_key=${exchangeRateApiKey}&base=USD&symbols=${currency.toUpperCase()}`,
-      {
-        method: "get",
-      }
-    )
-
-    if (!response.ok) {
-      console.log(response.status, response.statusText)
-      return false
-    }
-
-    const data = await response.json()
-
-    if(!data.success) {
-      console.log(data)
-      return false
-    }
-
-    return Math.round(data.rates[currency.toUpperCase()])
-
-  } catch (err) {
-    console.log('fetchExchangeRate fail', err)
-    return false
-  }
 }
 
 const generateRandomString = (length) => {
@@ -1082,7 +1049,8 @@ const fetchCreateUserStore = async (data) => {
       console.log(response.status, response.statusText)
       return false
     }
-    return await response.json()
+
+    return true
   } catch (err) {
     console.log('fetchCreateUserStore fail', err)
     return false
