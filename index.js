@@ -1474,6 +1474,8 @@ const payLnurl = async (username, amount) => {
   // hit the LNURL endpoint for Bitcoin Jungle
   const lnUrl = await fetchLnUrl(username)
 
+  console.log(lnUrl)
+
   if(!amount || amount == 0) {
     return true
   }
