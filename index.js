@@ -764,10 +764,10 @@ const payLnInvoice = async (lnd, invoice) => {
   }
 }
 
-const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount) => {
+const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount, callback) => {
   try {
     const response = await fetch(
-      lnUrlBaseUri + ".well-known/lnurlp/" + bitcoinJungleUsername + (milliSatAmount ? "?amount=" + milliSatAmount : "")
+      (!callback ? lnUrlBaseUri + ".well-known/lnurlp/" + bitcoinJungleUsername : callback) + (milliSatAmount ? "?amount=" + milliSatAmount : "")
     )
 
     if (!response.ok) {
@@ -791,7 +791,7 @@ const fetchBtcPayServerLnUrl = async (invoiceId, milliSatAmount) => {
     }
     return await response.json()
   } catch (err) {
-    console.log('fetchLnUrl fail', err)
+    console.log('fetchBtcPayServerLnUrl fail', err)
     return false
   }
 }
@@ -1489,7 +1489,7 @@ const payLnurl = async (username, amount) => {
   }
 
   // use the Bitcoin Jungle LNURL endpoint to generate a bolt11 invoice for the milli-satoshi amount calculated
-  const lnUrlWithAmount = await fetchLnUrl(username, amount)
+  const lnUrlWithAmount = await fetchLnUrl(username, amount, lnUrl.callback)
 
   if(!lnUrlWithAmount) {
     console.log('no lnUrlWithAmount')
