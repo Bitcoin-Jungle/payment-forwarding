@@ -132,15 +132,15 @@ app.post('/forward', async (req, res) => {
   }
 
   // if the invoice was manually marked, don't send money, bc we didn't really get any money
-  if(req.body.manuallyMarked) {
+  // if(req.body.manuallyMarked) {
 
-    // mark the invoice as processed so we don't try it again
-    await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
+  //   // mark the invoice as processed so we don't try it again
+  //   await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
     
-    console.log('is manually marked')
-    res.sendStatus(200)
-    return
-  }
+  //   console.log('is manually marked')
+  //   res.sendStatus(200)
+  //   return
+  // }
 
   // fetch store details from the db
   const store = await getStore(db, req.body.storeId)
