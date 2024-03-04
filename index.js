@@ -211,7 +211,7 @@ app.post('/forward', async (req, res) => {
     let tipPercent = 0
 
     if(tipAmount > subtotal) {
-      tipPercent = tipAmount / total
+      tipPercent = tipAmount / fullTotal
     } else {
       tipPercent = tipAmount / subtotal
     }
