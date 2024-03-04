@@ -205,9 +205,17 @@ app.post('/forward', async (req, res) => {
   let tipMilliSatAmount = 0
   const tipUsernames = await getTips(db, store.id)
   if(invoice.metadata && invoice.metadata.posData && invoice.metadata.posData.tip && tipUsernames && tipUsernames.length) {
-    const tipAmount = parseFloat((typeof invoice.metadata.posData.tip === 'string' ? invoice.metadata.posData.tip.replace(',', '') : invoice.metadata.posData.tip))
-    const subtotal = parseFloat((typeof invoice.metadata.posData.subTotal === 'string' ? invoice.metadata.posData.subTotal.replace(',', '') : invoice.metadata.posData.subTotal))
-    const tipPercent = tipAmount / subtotal
+    const tipAmount = parseFloat((typeof invoice.metadata.posData.tip === 'string' ? invoice.metadata.posData.tip.replaceAll(',', '') : invoice.metadata.posData.tip))
+    const subtotal = parseFloat((typeof invoice.metadata.posData.subTotal === 'string' ? invoice.metadata.posData.subTotal.replaceAll(',', '') : invoice.metadata.posData.subTotal))
+    const fullTotal = parseFloat((typeof invoice.metadata.posData.total === 'string' ? invoice.metadata.posData.total.replaceAll(',', '') : invoice.metadata.posData.total))
+    let tipPercent = 0
+
+    if(tipAmount > subtotal) {
+      tipPercent = tipAmount / total
+    } else {
+      tipPercent = tipAmount / subtotal
+    }
+
     tipMilliSatAmount = Math.round((milliSatAmount * tipPercent) / 1000) * 1000
 
     console.log('there was a tip!', tipMilliSatAmount)
