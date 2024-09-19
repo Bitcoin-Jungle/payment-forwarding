@@ -341,7 +341,7 @@ const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoice
       inPaymentProcessor: "IN_LN",
       outPaymentProcessor: outPaymentProcessor,
       outRecipientId: recipientId,
-      outTransactionData: { text: `Factura ${invoiceId}` }
+      outTransactionData: { text: invoiceId.substr(0, 14) }
     }
   });
   
