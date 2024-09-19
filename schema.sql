@@ -41,3 +41,5 @@ CREATE TABLE tip_payments (
 	bitcoinJungleUsername TEXT,
 	milliSatAmount TEXT
 );
+
+ALTER TABLE stores ADD bullBitcoin TEXT DEFAULT NULL;

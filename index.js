@@ -24,6 +24,7 @@ const defaultLogoUri = process.env.defaultLogoUri
 const defaultCssUri = process.env.defaultCssUri
 const internalKey = process.env.internalKey
 const sendgridApiKey = process.env.sendgridApiKey
+const bullBitcoinBaseUrl = "https://api.bullbitcoin.com"
 
 sgMail.setApiKey(sendgridApiKey)
 
@@ -144,6 +145,7 @@ app.post('/forward', async (req, res) => {
 
   // fetch store details from the db
   const store = await getStore(db, req.body.storeId)
+  const bullBitcoin = store.bullBitcoin ? JSON.parse(store.bullBitcoin) : null
 
   if(!store) {
     console.log('no store')
@@ -225,6 +227,27 @@ app.post('/forward', async (req, res) => {
     console.log('new payout amount to business owner', milliSatAmount)
   }
 
+  if(bullBitcoin && bullBitcoin.percent && bullBitcoin.recipientId && bullBitcoin.token) {
+    console.log('we have a bullbitcoin account!')
+    const milliSatsToConvertToFiat = Math.round((milliSatAmount * (bullBitcoin.percent / 100)) / 1000) * 1000
+    console.log('milliSatsToConvertToFiat', milliSatsToConvertToFiat)
+    try {
+      const bullBitcoinInvoiceToPay = await fetchBullBitcoinOrder(bullBitcoin.token, bullBitcoin.recipientId, milliSatsToConvertToFiat, req.body.invoiceId)
+      
+      if(bullBitcoinInvoiceToPay) {
+        console.log('bullBitcoinInvoiceToPay', bullBitcoinInvoiceToPay)
+        const bbLnInvoice = await payLnInvoice(lnd, bullBitcoinInvoiceToPay)
+
+        if(bbLnInvoice && bbLnInvoice.is_confirmed) {
+          milliSatAmount -= milliSatsToConvertToFiat
+          console.log('bullBitcoin invoice paid', milliSatsToConvertToFiat, bullBitcoinInvoiceToPay)
+        }
+      } 
+    } catch(e) {
+      console.log('error creating bullbitcoin order', e)
+    }
+  }
+    
   console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
   const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
 
@@ -265,6 +288,86 @@ app.post('/forward', async (req, res) => {
   res.sendStatus(404)
   return
 })
+
+const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoiceId) => {
+  const amountSats = Math.round(parseInt(milliSatAmount, 10) / 1000)
+  let outPaymentProcessor = null
+
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const recipientBody = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654",
+    method: "listMyRecipients",
+    params: {
+      paginator: {
+        pageSize: 100,
+      },
+    }
+  })
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-recipients`, {
+      method: 'POST',
+      headers: headers,
+      body: recipientBody,
+    });
+
+    const data = await response.json();
+    const recipients = data.result.elements
+    const myRecipient = recipients.find(el => el.recipientId === recipientId)
+
+    if(myRecipient) {
+      outPaymentProcessor = myRecipient.paymentProcessors[0]
+    } else {
+      console.log('error locating bullbitcoin recipient', error)
+      return null
+    }
+  } catch (error) {
+    console.log('error locating bullbitcoin recipient', error)
+    return null
+  }
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654",
+    method: "createMyOrder",
+    params: {
+      amount: amountSats / 100_000_000,
+      isInAmountFixed: true,
+      inPaymentProcessor: "IN_LN",
+      outPaymentProcessor: outPaymentProcessor,
+      outRecipientId: recipientId,
+      outTransactionData: { text: `Factura ${invoiceId}` }
+    }
+  });
+  
+  console.log('create order body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('create order res', data)
+    if (data.result && data.result.element && data.result.element.inTransaction) {
+      const invoiceData = data.result.element.inTransaction.transactionPaymentProcessorData;
+      const bolt11Invoice = invoiceData.find(item => item.paymentProcessorData.paymentProcessorDataCode === 'bolt11');
+      return bolt11Invoice ? bolt11Invoice.value : null;
+    }
+
+    throw new Error('Invoice not found in response');
+  } catch (error) {
+    console.error('Error creating BullBitcoin order:', error);
+    return null;
+  }
+}
 
 app.post('/beds24', async (req, res) => {
   console.log(req.body)  
@@ -327,6 +430,11 @@ app.post('/addStore', async (req, res) => {
   const rate    = req.body.rate
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
   const tipSplit = req.body.tipSplit
+  const bullBitcoin = req.body.bullBitcoin
+
+  if(bullBitcoin) {
+    console.log('bullBitcoin', bullBitcoin)
+  }
 
   // these are needed but not user editable inputs
   const paymentTolerance = 1
@@ -469,7 +577,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // add store to our internal db
-  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername)
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin)
 
   if(!newStore) {
     console.log('db error', newStore)
@@ -1280,6 +1388,88 @@ const getStore = async (db, storeId) => {
   }
 }
 
+const getBbStores = async (db) => {
+  try {
+    return await db.all(
+      "SELECT * FROM stores WHERE bullBitcoin is not null", 
+    )
+  } catch {
+    return false
+  }
+}
+
+const refreshBbTokens = async () => {
+  console.log("refreshing bb tokens")
+
+  const bbStores = await getBbStores(db)
+  if(!bbStores) {
+    console.log("no bb stores")
+    return
+  }
+
+  for(const bbStore of bbStores) {
+    console.log("refreshing bb token for store", bbStore.storeId)
+
+    const bullBitcoin = JSON.parse(bbStore.bullBitcoin)
+
+    if(bullBitcoin && bullBitcoin.token) {
+      const headers = {
+        'content-type': 'application/json; charset=utf-8',
+        'Authorization': 'Bearer ' + bullBitcoin.token,
+        'Cookie': 'bb_session_last_refreshed=' + bullBitcoin.bb_session_last_refreshed,
+      };
+
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: "654",
+        method: "getMyUser",
+        params: {}
+      });
+
+      try {
+        const response = await fetch(`${bullBitcoinBaseUrl}/api-users`, {
+          method: 'POST',
+          headers: headers,
+          body: body,
+        });
+
+        const setCookieHeader = response.headers.get('set-cookie');
+
+        if(setCookieHeader) {
+          // Split the cookies and find the one for 'bb_session_last_refreshed'
+          const cookies = setCookieHeader.split(';');
+          const bbSessionCookie = cookies.find(cookie => cookie.trim().startsWith('bb_session_last_refreshed='));
+
+          if (bbSessionCookie) {
+            // Extract the value
+            const bbSessionValue = bbSessionCookie.split('=')[1];
+            console.log('bb_session_last_refreshed value:', bbSessionValue);
+
+            // Update the store with the new bb_session_last_refreshed value
+            await db.run(
+              "UPDATE stores SET bullBitcoin = ? WHERE id = ?",
+              [
+                JSON.stringify({
+                  ...bullBitcoin,
+                  bb_session_last_refreshed: bbSessionValue
+                }),
+                bbStore.id
+              ]
+            )
+          }
+        }
+      } catch (error) {
+        console.error('Error refrehsing bbToken:', error);
+      }
+    }
+  }
+
+  console.log('done refreshing bb tokens for x bb stores', bbStores ? bbStores.length : 0)
+}
+
+setInterval(refreshBbTokens, 1000 * 60 * 60)
+refreshBbTokens()
+
 const getStoreByAppId = async (db, appId) => {
   try {
     return await db.get(
@@ -1389,14 +1579,15 @@ const addTipPayment = async(db, paymentId, storeId, invoiceId, timestamp, bitcoi
   }
 }
 
-const addStore = async(db, storeId, rate, bitcoinJungleUsername) => {
+const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin) => {
   try {
     return await db.run(
-      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername) VALUES (?, ?, ?)", 
+      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin) VALUES (?, ?, ?, ?)", 
       [
         storeId,
         rate,
-        bitcoinJungleUsername
+        bitcoinJungleUsername,
+        bullBitcoin ? JSON.stringify(bullBitcoin) : null,
       ]
     )
   } catch(err) {
