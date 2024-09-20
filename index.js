@@ -37,6 +37,7 @@ const noAuthPaths = [
   '/updateStoreAppIds',
   '/enableLnurl',
   '/setTipSplit',
+  '/findStores',
 ]
 
 // connect to the db
@@ -833,6 +834,36 @@ app.get('/enableLnurl', async (req, res) => {
   return
 })
 
+app.get('/findStores', async (req, res) => {
+  const userId = req.query.userId
+  const date = new Date().getUTCFullYear() + '-' + (new Date().getUTCMonth() + 1) + '-' + new Date().getUTCDate()
+  const hash = req.query.hash
+
+  if(!userId || !hash || !date) {
+    res.status(400).send({success: false, error: true, message: "userId, hash and date are required"})
+    return
+  }
+
+  const hashedUserId = hmacSHA256([userId, date], webhookSecret)
+
+  if(hashedUserId !== hash) {
+    console.log('invalid hash', hashedUserId, hash)
+    res.status(400).send({success: false, error: true, message: "Invalid hash"})
+    return
+  }
+
+  const stores = await findStoresByBbUserId(db, userId)
+
+  res.status(200).send({success: true, error: false, data: stores ? stores : []})
+  return
+})
+
+const hmacSHA256 = (data, secret) => {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(data.join('|'));
+  return hmac.digest('hex');
+};
+
 const sendEmail = async (storeOwnerEmail) => {
   const msg = {
     to: storeOwnerEmail,
@@ -1575,6 +1606,17 @@ const addTipPayment = async(db, paymentId, storeId, invoiceId, timestamp, bitcoi
     )
   } catch(e) {
     console.log(e)
+    return false
+  }
+}
+
+const findStoresByBbUserId = async (db, bbUserId) => {
+  try {
+    return await db.all(
+      "SELECT * FROM stores WHERE json_extract(bullBitcoin, '$.userId') = ?",
+      [bbUserId]
+    )
+  } catch {
     return false
   }
 }
