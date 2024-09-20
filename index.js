@@ -853,8 +853,27 @@ app.get('/findStores', async (req, res) => {
   }
 
   const stores = await findStoresByBbUserId(db, userId)
+  let output = []
 
-  res.status(200).send({success: true, error: false, data: stores ? stores : []})
+  if(stores && stores.length) {
+    output = stores.map((el) => {
+      const bb = JSON.parse(el.bullBitcoin)
+      return {
+        id: el.id,
+        storeId: el.storeId,
+        rate: el.rate,
+        bitcoinJungleUsername: el.bitcoinJungleUsername,
+        appId: el.appId,
+        bullBitcoin: {
+          percent: bb.percent,
+          recipientId: bb.recipientId,
+          userId: bb.userId,
+        }
+      }
+    })
+  }
+
+  res.status(200).send({success: true, error: false, data: output})
   return
 })
 
@@ -1498,7 +1517,7 @@ const refreshBbTokens = async () => {
   console.log('done refreshing bb tokens for x bb stores', bbStores ? bbStores.length : 0)
 }
 
-setInterval(refreshBbTokens, 1000 * 60 * 60)
+setInterval(refreshBbTokens, 1000 * 60 * 60 * 24)
 refreshBbTokens()
 
 const getStoreByAppId = async (db, appId) => {
