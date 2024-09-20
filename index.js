@@ -864,11 +864,11 @@ app.get('/findStores', async (req, res) => {
         rate: el.rate,
         bitcoinJungleUsername: el.bitcoinJungleUsername,
         appId: el.appId,
-        bullBitcoin: {
+        bullBitcoin: JSON.stringify({
           percent: bb.percent,
           recipientId: bb.recipientId,
           userId: bb.userId,
-        }
+        })
       }
     })
   }
