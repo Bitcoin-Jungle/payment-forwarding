@@ -318,13 +318,19 @@ const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoice
     });
 
     const data = await response.json();
-    const recipients = data.result.elements
-    const myRecipient = recipients.find(el => el.recipientId === recipientId)
 
-    if(myRecipient) {
-      outPaymentProcessor = myRecipient.paymentProcessors[0]
+    if(data && data.result && data.result.elements) {
+      const recipients = data.result.elements
+      const myRecipient = recipients.find(el => el.recipientId === recipientId)
+
+      if(myRecipient) {
+        outPaymentProcessor = myRecipient.paymentProcessors[0]
+      } else {
+        console.log('error locating bullbitcoin recipient', error)
+        return null
+      }
     } else {
-      console.log('error locating bullbitcoin recipient', error)
+      console.log('recipientsData', data)
       return null
     }
   } catch (error) {
