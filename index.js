@@ -1482,6 +1482,9 @@ const refreshBbTokens = async () => {
         params: {}
       });
 
+      console.log('headers', headers)
+      console.log('body', body)
+
       try {
         const response = await fetch(`${bullBitcoinBaseUrl}/api-users`, {
           method: 'POST',
@@ -1489,7 +1492,11 @@ const refreshBbTokens = async () => {
           body: body,
         });
 
+        console.log('resStatus', response.status)
+
         const setCookieHeader = response.headers.get('set-cookie');
+
+        console.log('setCookieHeader', setCookieHeader)
 
         if(setCookieHeader) {
           // Split the cookies and find the one for 'bb_session_last_refreshed'
@@ -1497,9 +1504,10 @@ const refreshBbTokens = async () => {
           const bbSessionCookie = cookies.find(cookie => cookie.trim().startsWith('bb_session_last_refreshed='));
 
           if (bbSessionCookie) {
+            console.log('new bbSessionCookie', bbSessionCookie)
             // Extract the value
             const bbSessionValue = bbSessionCookie.split('=')[1];
-            console.log('bb_session_last_refreshed value:', bbSessionValue);
+            console.log('new bb_session_last_refreshed value:', bbSessionValue);
 
             // Update the store with the new bb_session_last_refreshed value
             await db.run(
