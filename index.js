@@ -1506,7 +1506,7 @@ const refreshBbTokens = async () => {
           if (bbSessionCookie) {
             console.log('new bbSessionCookie', bbSessionCookie)
             // Extract the value
-            const bbSessionValue = bbSessionCookie.split('=')[1];
+            const bbSessionValue = bbSessionCookie.replace('bb_session_last_refreshed=', '')
             console.log('new bb_session_last_refreshed value:', bbSessionValue);
 
             // Update the store with the new bb_session_last_refreshed value
