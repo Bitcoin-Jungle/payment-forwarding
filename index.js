@@ -1772,7 +1772,7 @@ const payLnurl = async (username, amount, invoiceId) => {
   }
 
   // use the Bitcoin Jungle LNURL endpoint to generate a bolt11 invoice for the milli-satoshi amount calculated
-  const lnUrlWithAmount = await fetchLnUrl(username, amount, lnUrl.callback, invoiceIdfetchfetch)
+  const lnUrlWithAmount = await fetchLnUrl(username, amount, lnUrl.callback, invoiceId)
 
   if(!lnUrlWithAmount) {
     console.log('no lnUrlWithAmount')
