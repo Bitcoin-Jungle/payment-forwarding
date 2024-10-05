@@ -250,7 +250,7 @@ app.post('/forward', async (req, res) => {
   }
     
   console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
-  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount)
+  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount, req.body.invoiceId)
 
   if(ownerLnInvoice) {
     // we've now forwarded the payment, mark it as such in the db
@@ -268,7 +268,7 @@ app.post('/forward', async (req, res) => {
       for (var i = tipUsernames.length - 1; i >= 0; i--) {
         tipUsername = tipUsernames[i].bitcoinJungleUsername
         console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
-        tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount)
+        tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
 
         if(tipLnInvoice) {
           // store a record of the payment in the db
@@ -936,11 +936,18 @@ const payLnInvoice = async (lnd, invoice) => {
   }
 }
 
-const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount, callback) => {
+const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount, callback, invoiceId) => {
   try {
-    const response = await fetch(
-      (!callback ? lnUrlBaseUri + ".well-known/lnurlp/" + bitcoinJungleUsername : callback) + (milliSatAmount ? "?amount=" + milliSatAmount : "")
-    )
+    let url = ""
+    if(!callback) {
+      url = lnUrlBaseUri + ".well-known/lnurlp/" + bitcoinJungleUsername
+    } else {
+      url = new URL(callback)
+      url.searchParams.append('amount', milliSatAmount)
+      url.searchParams.append('comment', `POS Invoice ${invoiceId}`)
+    }
+
+    const response = await fetch(url)
 
     if (!response.ok) {
       return false
@@ -1744,7 +1751,7 @@ const getTipsByAppId = async (db, appId) => {
   }
 }
 
-const payLnurl = async (username, amount) => {
+const payLnurl = async (username, amount, invoiceId) => {
   // hit the LNURL endpoint for Bitcoin Jungle
   const lnUrl = await fetchLnUrl(username)
 
@@ -1765,7 +1772,7 @@ const payLnurl = async (username, amount) => {
   }
 
   // use the Bitcoin Jungle LNURL endpoint to generate a bolt11 invoice for the milli-satoshi amount calculated
-  const lnUrlWithAmount = await fetchLnUrl(username, amount, lnUrl.callback)
+  const lnUrlWithAmount = await fetchLnUrl(username, amount, lnUrl.callback, invoiceIdfetchfetch)
 
   if(!lnUrlWithAmount) {
     console.log('no lnUrlWithAmount')
