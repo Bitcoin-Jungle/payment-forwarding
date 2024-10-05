@@ -942,9 +942,10 @@ const fetchLnUrl = async (bitcoinJungleUsername, milliSatAmount, callback, invoi
     if(!callback) {
       url = lnUrlBaseUri + ".well-known/lnurlp/" + bitcoinJungleUsername
     } else {
-      url = new URL(callback)
-      url.searchParams.append('amount', milliSatAmount)
-      url.searchParams.append('comment', `POS Invoice ${invoiceId}`)
+      const callbackUrl = new URL(callback)
+      callbackUrl.searchParams.append('amount', milliSatAmount)
+      callbackUrl.searchParams.append('comment', `POS Invoice ${invoiceId}`)
+      url = callbackUrl.toString()
     }
 
     const response = await fetch(url)
