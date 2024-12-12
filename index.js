@@ -324,7 +324,21 @@ const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoice
       const myRecipient = recipients.find(el => el.recipientId === recipientId)
 
       if(myRecipient) {
-        outPaymentProcessor = myRecipient.paymentProcessors[0]
+        if(myRecipient.recipientType === "IBAN_CR") {
+          if(myRecipient.currency === "CRC") {
+            outPaymentProcessor = "OUT_CRC_RDV_IBAN"
+          } else if(myRecipient.currency === "USD") {
+            outPaymentProcessor = "OUT_USD_RDV_IBAN"
+          } else {
+            console.log('unsupported currency', myRecipient.currency)
+            return null
+          }
+        } else if(myRecipient.recipientType === "SINPE_MOVIL") {
+          outPaymentProcessor = "OUT_CRC_RDV_SINPE"
+        } else {
+          console.log('unsupported recipient type', myRecipient.recipientType)
+          return null
+        }
       } else {
         console.log('error locating bullbitcoin recipient', error)
         return null
