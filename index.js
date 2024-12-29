@@ -25,6 +25,7 @@ const defaultCssUri = process.env.defaultCssUri
 const internalKey = process.env.internalKey
 const sendgridApiKey = process.env.sendgridApiKey
 const bullBitcoinBaseUrl = "https://api.bullbitcoin.com"
+const fooodAppUserId = process.env.fooodAppUserId
 
 sgMail.setApiKey(sendgridApiKey)
 
@@ -38,6 +39,7 @@ const noAuthPaths = [
   '/enableLnurl',
   '/setTipSplit',
   '/findStores',
+  '/foood-app-stores',
 ]
 
 // connect to the db
@@ -872,6 +874,37 @@ app.get('/findStores', async (req, res) => {
     return
   }
 
+  const stores = await findStoresByBbUserId(db, userId)
+  let output = []
+
+  const btcpayStores = await fetchGetAllStores()
+
+  if(stores && stores.length) {
+    output = stores.map((el) => {
+      const bb = JSON.parse(el.bullBitcoin)
+      const btcpayStore = btcpayStores.find((store) => store.id === el.storeId)
+      return {
+        id: el.id,
+        storeId: el.storeId,
+        rate: el.rate,
+        bitcoinJungleUsername: el.bitcoinJungleUsername,
+        appId: el.appId,
+        btcpayStore: btcpayStore,
+        bullBitcoin: JSON.stringify({
+          percent: bb.percent,
+          recipientId: bb.recipientId,
+          userId: bb.userId,
+        })
+      }
+    })
+  }
+
+  res.status(200).send({success: true, error: false, data: output})
+  return
+})
+
+app.get('/foood-app-stores', async (req, res) => {
+  const userId = fooodAppUserId
   const stores = await findStoresByBbUserId(db, userId)
   let output = []
 
