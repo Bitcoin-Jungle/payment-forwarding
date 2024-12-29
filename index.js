@@ -7,7 +7,7 @@ import fetch from 'node-fetch'
 import { pay } from 'ln-service'
 import { authenticatedLndGrpc } from 'lightning'
 import sgMail from '@sendgrid/mail'
-
+import twilio from 'twilio'
 // set all the env vars
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
@@ -26,8 +26,13 @@ const internalKey = process.env.internalKey
 const sendgridApiKey = process.env.sendgridApiKey
 const bullBitcoinBaseUrl = "https://api.bullbitcoin.com"
 const fooodAppUserId = process.env.fooodAppUserId
+const twilioAccountSid = process.env.twilioAccountSid
+const twilioAuthToken = process.env.twilioAuthToken
+const twilioPhoneNumber = process.env.twilioPhoneNumber
 
 sgMail.setApiKey(sendgridApiKey)
+
+const twilioClient = twilio(twilioAccountSid, twilioAuthToken)
 
 // these paths don't need to do hmac-sha256 verififaction
 const noAuthPaths = [
@@ -276,6 +281,19 @@ app.post('/forward', async (req, res) => {
           // store a record of the payment in the db
           await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
         }
+      }
+    }
+
+    // send a text message to the store owner
+    if(req.body.metadata.buyerEmail) {
+      const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
+
+      if(buyerPhone) {
+        await twilioClient.messages.create({
+          to: `${buyerPhone}`,
+          from: twilioPhoneNumber,
+          body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
+        })
       }
     }
 
