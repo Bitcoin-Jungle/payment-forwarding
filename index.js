@@ -289,11 +289,15 @@ app.post('/forward', async (req, res) => {
       const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
 
       if(buyerPhone) {
-        await twilioClient.messages.create({
-          to: `${buyerPhone}`,
-          from: twilioPhoneNumber,
-          body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
-        })
+        try {
+          await twilioClient.messages.create({
+            to: `${buyerPhone}`,
+            from: twilioPhoneNumber,
+            body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
+          })
+        } catch(e) {
+          console.log('error sending text message', e)
+        }
       }
     }
 
