@@ -213,7 +213,15 @@ app.post('/forward', async (req, res) => {
   console.log('fee we retain', feeRetainedMilliSatoshis)
 
   let tipMilliSatAmount = 0
-  const tipUsernames = await getTips(db, store.id)
+
+  let tipUsernames = []
+  const appId = req.body.metadata?.orderUrl?.includes('/apps/') ? req.body.metadata.orderUrl.split('/apps/')[1]?.split('/pos')[0] || null : null
+  if(appId) {
+    tipUsernames = await getTipsByAppId(db, appId)
+  } else {
+    tipUsernames = await getTips(db, store.id)
+  }
+
   if(invoice.metadata && invoice.metadata.posData && invoice.metadata.posData.tip && tipUsernames && tipUsernames.length) {
     const tipAmount = parseFloat((typeof invoice.metadata.posData.tip === 'string' ? invoice.metadata.posData.tip.replaceAll(',', '') : invoice.metadata.posData.tip))
     const subtotal = parseFloat((typeof invoice.metadata.posData.subTotal === 'string' ? invoice.metadata.posData.subTotal.replaceAll(',', '') : invoice.metadata.posData.subTotal))
