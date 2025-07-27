@@ -2025,3 +2025,31 @@ const getBullPayOrderSummary = async (token, orderId) => {
     return null;
   }
 }
+
+// TODO: Implement these functions for Liquid wallet integration:
+
+// validateLiquidDescriptor function should:
+// - Accept: liquidWalletDescriptor (string)
+// - Validate the descriptor format via Cyphernode API call
+// - Return: { isValid: boolean, error: string|null }
+// - API endpoint: POST to Cyphernode validateLiquidDescriptor
+// - Expected API response: { "valid": true } or { "valid": false, "error": "message" }
+const validateLiquidDescriptor = async (liquidWalletDescriptor) => {
+  // TODO: Implement Cyphernode API call to validate liquid descriptor
+  // This function should call the Cyphernode API to validate the descriptor format
+  // and return the validation result
+  throw new Error('validateLiquidDescriptor not yet implemented')
+}
+
+// liquidPayment function should:
+// - Accept: btcAmount (number), liquidWalletDescriptor (string)
+// - Send Bitcoin to the Liquid wallet descriptor via Cyphernode API call
+// - Return: result object with hash if successful, null if failed
+// - API endpoint: POST to Cyphernode spendToLiquidDescriptor  
+// - Expected API response: { "status": "accepted", "hash": "txid", "details": {...} }
+const liquidPayment = async (btcAmount, liquidWalletDescriptor) => {
+  // TODO: Implement Cyphernode API call to send Bitcoin to liquid descriptor
+  // This function should call the Cyphernode API to spend Bitcoin to the descriptor
+  // and return the transaction result
+  throw new Error('liquidPayment not yet implemented')
+}
