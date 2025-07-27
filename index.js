@@ -484,6 +484,7 @@ app.post('/addStore', async (req, res) => {
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
   const tipSplit = req.body.tipSplit
   const bullBitcoin = req.body.bullBitcoin
+  const bullPay = req.body.bullPay
 
   if(bullBitcoin) {
     console.log('bullBitcoin', bullBitcoin)
@@ -630,7 +631,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // add store to our internal db
-  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin)
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin, bullPay)
 
   if(!newStore) {
     console.log('db error', newStore)
@@ -1536,7 +1537,7 @@ const getStore = async (db, storeId) => {
 const getBbStores = async (db) => {
   try {
     return await db.all(
-      "SELECT * FROM stores WHERE bullBitcoin is not null", 
+      "SELECT * FROM stores WHERE bullBitcoin is not null OR bullPay is not null", 
     )
   } catch {
     return false
@@ -1553,15 +1554,20 @@ const refreshBbTokens = async () => {
   }
 
   for(const bbStore of bbStores) {
-    console.log("refreshing bb token for store", bbStore.storeId)
+    console.log("refreshing token for store", bbStore.storeId)
 
-    const bullBitcoin = JSON.parse(bbStore.bullBitcoin)
-
-    if(bullBitcoin && bullBitcoin.token) {
+    // Handle both bullBitcoin and bullPay configurations
+    const bullBitcoin = bbStore.bullBitcoin ? JSON.parse(bbStore.bullBitcoin) : null
+    const bullPay = bbStore.bullPay ? JSON.parse(bbStore.bullPay) : null
+    
+    const configToRefresh = bullBitcoin || bullPay
+    const configType = bullBitcoin ? 'bullBitcoin' : 'bullPay'
+    
+    if(configToRefresh && configToRefresh.token) {
       const headers = {
         'content-type': 'application/json; charset=utf-8',
-        'Authorization': 'Bearer ' + bullBitcoin.token,
-        'Cookie': 'bb_session_last_refreshed=' + bullBitcoin.bb_session_last_refreshed,
+        'Authorization': 'Bearer ' + configToRefresh.token,
+        'Cookie': 'bb_session_last_refreshed=' + configToRefresh.bb_session_last_refreshed,
       };
 
       const body = JSON.stringify({
@@ -1571,8 +1577,7 @@ const refreshBbTokens = async () => {
         params: {}
       });
 
-      console.log('headers', headers)
-      console.log('body', body)
+      console.log('refreshing token for config type:', configType)
 
       try {
         const response = await fetch(`${bullBitcoinBaseUrl}/api-users`, {
@@ -1581,43 +1586,40 @@ const refreshBbTokens = async () => {
           body: body,
         });
 
-        console.log('resStatus', response.status)
+        const data = await response.json();
+        console.log('refresh token response', data)
 
-        const setCookieHeader = response.headers.get('set-cookie');
-
-        console.log('setCookieHeader', setCookieHeader)
-
-        if(setCookieHeader) {
-          // Split the cookies and find the one for 'bb_session_last_refreshed'
-          const cookies = setCookieHeader.split(';');
-          const bbSessionCookie = cookies.find(cookie => cookie.trim().startsWith('bb_session_last_refreshed='));
-
-          if (bbSessionCookie) {
-            console.log('new bbSessionCookie', bbSessionCookie)
-            // Extract the value
-            const bbSessionValue = bbSessionCookie.replace('bb_session_last_refreshed=', '')
-            console.log('new bb_session_last_refreshed value:', bbSessionValue);
-
-            // Update the store with the new bb_session_last_refreshed value
-            await db.run(
-              "UPDATE stores SET bullBitcoin = ? WHERE id = ?",
-              [
-                JSON.stringify({
-                  ...bullBitcoin,
-                  bb_session_last_refreshed: bbSessionValue
-                }),
-                bbStore.id
-              ]
-            )
+        if(data.result) {
+          // Extract the new session value from response headers
+          const setCookieHeader = response.headers.get('set-cookie');
+          let newSessionValue = configToRefresh.bb_session_last_refreshed;
+          
+          if(setCookieHeader && setCookieHeader.includes('bb_session_last_refreshed=')) {
+            const match = setCookieHeader.match(/bb_session_last_refreshed=([^;]+)/);
+            if(match) {
+              newSessionValue = match[1];
+            }
           }
+
+          // Update the appropriate field (bullBitcoin or bullPay) with refreshed token info
+          const updateQuery = `UPDATE stores SET ${configType} = ? WHERE id = ?`;
+          await db.run(updateQuery, [
+            JSON.stringify({
+              ...configToRefresh,
+              bb_session_last_refreshed: newSessionValue
+            }),
+            bbStore.id
+          ]);
+          
+          console.log(`Successfully refreshed ${configType} token for store ${bbStore.storeId}`)
+        } else {
+          console.log(`Failed to refresh ${configType} token for store ${bbStore.storeId}:`, data)
         }
-      } catch (error) {
-        console.error('Error refrehsing bbToken:', error);
+      } catch(error) {
+        console.log(`Error refreshing ${configType} token for store ${bbStore.storeId}:`, error)
       }
     }
   }
-
-  console.log('done refreshing bb tokens for x bb stores', bbStores ? bbStores.length : 0)
 }
 
 setInterval(refreshBbTokens, 1000 * 60 * 60 * 24)
@@ -1734,24 +1736,39 @@ const addTipPayment = async(db, paymentId, storeId, invoiceId, timestamp, bitcoi
 
 const findStoresByBbUserId = async (db, bbUserId) => {
   try {
-    return await db.all(
+    // Check both bullBitcoin and bullPay configurations
+    const bullBitcoinStores = await db.all(
       "SELECT * FROM stores WHERE json_extract(bullBitcoin, '$.userId') = ?",
       [bbUserId]
     )
+    
+    const bullPayStores = await db.all(
+      "SELECT * FROM stores WHERE json_extract(bullPay, '$.userId') = ?",
+      [bbUserId]
+    )
+    
+    // Combine results and remove duplicates
+    const allStores = [...bullBitcoinStores, ...bullPayStores]
+    const uniqueStores = allStores.filter((store, index, self) => 
+      index === self.findIndex(s => s.id === store.id)
+    )
+    
+    return uniqueStores
   } catch {
     return false
   }
 }
 
-const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin) => {
+const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay) => {
   try {
     return await db.run(
-      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin) VALUES (?, ?, ?, ?)", 
+      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay) VALUES (?, ?, ?, ?, ?)", 
       [
         storeId,
         rate,
         bitcoinJungleUsername,
         bullBitcoin ? JSON.stringify(bullBitcoin) : null,
+        bullPay ? JSON.stringify(bullPay) : null,
       ]
     )
   } catch(err) {
