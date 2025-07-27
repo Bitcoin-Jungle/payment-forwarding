@@ -251,6 +251,7 @@ app.post('/forward', async (req, res) => {
   // fetch store details from the db
   const store = await getStore(db, req.body.storeId)
   const bullBitcoin = store.bullBitcoin ? JSON.parse(store.bullBitcoin) : null
+  const bullPay = store.bullPay ? JSON.parse(store.bullPay) : null
 
   if(!store) {
     console.log('no store')
@@ -360,64 +361,213 @@ app.post('/forward', async (req, res) => {
       console.log('error creating bullbitcoin order', e)
     }
   }
+  // NEW: Add bullPay flow after existing bullBitcoin flow
+  else if(bullPay && bullPay.percent && bullPay.currency && bullPay.token) {
+    console.log('we have a bullpay account!')
     
-  console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
-  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount, req.body.invoiceId)
+    try {
+      // 1. Finalize BullPay order with actual amount
+      const invoiceRecord = await getInvoice(db, req.body.storeId, req.body.invoiceId)
+      
+      if(invoiceRecord && invoiceRecord.bullPayOrderId) {
+        console.log('finalizing bullPay order:', invoiceRecord.bullPayOrderId)
+        
+        const actualBtcToConvert = btcTotal * (bullPay.percent / 100)
+        const actualMilliSatsToConvert = Math.round(actualBtcToConvert * 100000000 * 1000)
+        
+        console.log('finalizing with actual amount:', actualBtcToConvert, 'BTC')
+        
+        const finalizeResult = await finalizeBullpaySellOrder(
+          bullPay.token, 
+          invoiceRecord.bullPayOrderId,
+          actualMilliSatsToConvert
+        )
+        
+        if(finalizeResult && finalizeResult.success) {
+          milliSatAmount -= actualMilliSatsToConvert
+          console.log('bullPay order finalized successfully', actualMilliSatsToConvert, invoiceRecord.bullPayOrderId)
+          
+          // Get the final order summary after finalization
+          const finalOrderSummary = await getBullPayOrderSummary(bullPay.token, invoiceRecord.bullPayOrderId)
+          
+          if(finalOrderSummary) {
+            console.log('got final bullPay order summary:', finalOrderSummary)
+            
+            // Update BTCPay invoice metadata with final order summary
+            const metadataUpdate = {
+              bullPayOrderSummary: finalOrderSummary,
+              bullPayStatus: 'finalized',
+              bullPayFinalizedAt: new Date().toISOString(),
+              bullPayActualAmount: actualBtcToConvert
+            }
+            
+            const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+            
+            if(!metadataUpdateResult) {
+              console.log('failed to update invoice metadata with final order summary')
+            } else {
+              console.log('successfully updated invoice metadata with final order summary')
+            }
+          } else {
+            console.log('failed to get final order summary')
+          }
+        } else {
+          console.log('failed to finalize bullPay order')
+          res.sendStatus(500)
+          return
+        }
+      } else {
+        console.log('no bullPayOrderId found for invoice, cannot finalize')
+        res.sendStatus(500)
+        return
+      }
+      
+      // 2. Send remainder to Liquid descriptor
+      const remainingBtcAmount = milliSatAmount / (100000000 * 1000) // Convert millisats to BTC
+      console.log('sending remaining amount to liquid descriptor:', remainingBtcAmount, 'BTC')
+      
+      const liquidResult = await liquidPayment(remainingBtcAmount, store.liquidWalletDescriptor)
+      
+      if(liquidResult && liquidResult.hash) {
+        console.log('liquid payment confirmed with hash:', liquidResult.hash)
+        
+        // Payment confirmed - mark as processed
+        await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
+        
+        // Store payment record with liquid transaction details
+        await addPayment(
+          db,
+          liquidResult.hash,
+          req.body.storeId,
+          req.body.invoiceId,
+          req.body.timestamp,
+          '0', // No fee retained for bullPay
+          liquidResult.hash,
+          liquidResult.details?.mempoolUrl || null
+        )
+        
+        // Update BTCPay invoice metadata with Cyphernode transaction details
+        const metadataUpdate = {
+          liquidTransaction: liquidResult,
+          liquidTransactionProcessedAt: new Date().toISOString(),
+          liquidTransactionAmount: remainingBtcAmount,
+          bullPayStatus: 'completed'
+        }
+        
+        const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+        
+        if(!metadataUpdateResult) {
+          console.log('failed to update invoice metadata with liquid transaction details')
+        } else {
+          console.log('successfully updated invoice metadata with liquid transaction details')
+        }
+        
+        // Handle tips for bullPay stores - Note: tips stay in Lightning for now
+        if(tipMilliSatAmount > 0) {
+          const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
 
-  if(ownerLnInvoice) {
-    // we've now forwarded the payment, mark it as such in the db
-    await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
+          let tipLnInvoice, tipUsername
+          for (var i = tipUsernames.length - 1; i >= 0; i--) {
+            tipUsername = tipUsernames[i].bitcoinJungleUsername
+            console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
+            tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
 
-    if(ownerLnInvoice.id) {
-      // store a record of the payment in the db
-      await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+            if(tipLnInvoice) {
+              // store a record of the payment in the db
+              await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+            }
+          }
+        }
+        
+        // send a text message to the store owner for bullPay stores
+        if(req.body.metadata.buyerEmail) {
+          const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
+
+          if(buyerPhone) {
+            try {
+              await twilioClient.messages.create({
+                to: `${buyerPhone}`,
+                from: twilioPhoneNumber,
+                body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta Liquid.`
+              })
+            } catch(e) {
+              console.log('error sending text message', e)
+            }
+          }
+        }
+        
+        console.log('bullPay payment completed successfully', remainingBtcAmount, liquidResult.hash)
+        res.sendStatus(200)
+        return
+      } else {
+        console.log('error occurred with liquid payment', liquidResult)
+        res.sendStatus(404)
+        return
+      }
+    } catch(error) {
+      console.log('error in bullPay processing:', error)
+      res.sendStatus(500)
+      return
     }
-    
-    if(tipMilliSatAmount > 0) {
-      const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
+  } else {
+    // EXISTING flow continues here for non-bull stores...
+    console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
+    const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount, req.body.invoiceId)
 
-      let tipLnInvoice, tipUsername
-      for (var i = tipUsernames.length - 1; i >= 0; i--) {
-        tipUsername = tipUsernames[i].bitcoinJungleUsername
-        console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
-        tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
+    if(ownerLnInvoice) {
+      // we've now forwarded the payment, mark it as such in the db
+      await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
 
-        if(tipLnInvoice) {
-          // store a record of the payment in the db
-          await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+      if(ownerLnInvoice.id) {
+        // store a record of the payment in the db
+        await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+      }
+      
+      if(tipMilliSatAmount > 0) {
+        const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
+
+        let tipLnInvoice, tipUsername
+        for (var i = tipUsernames.length - 1; i >= 0; i--) {
+          tipUsername = tipUsernames[i].bitcoinJungleUsername
+          console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
+          tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
+
+          if(tipLnInvoice) {
+            // store a record of the payment in the db
+            await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+          }
         }
       }
-    }
 
-    // send a text message to the store owner
-    if(req.body.metadata.buyerEmail) {
-      const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
+      // send a text message to the store owner
+      if(req.body.metadata.buyerEmail) {
+        const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
 
-      if(buyerPhone) {
-        try {
-          await twilioClient.messages.create({
-            to: `${buyerPhone}`,
-            from: twilioPhoneNumber,
-            body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
-          })
-        } catch(e) {
-          console.log('error sending text message', e)
+        if(buyerPhone) {
+          try {
+            await twilioClient.messages.create({
+              to: `${buyerPhone}`,
+              from: twilioPhoneNumber,
+              body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
+            })
+          } catch(e) {
+            console.log('error sending text message', e)
+          }
         }
       }
+
+      console.log('payment succeded, marked as processed, all done')
+
+      // we're done!
+      res.sendStatus(200)
+      return
     }
 
-    console.log('payment succeded, marked as processed, all done')
-
-    // we're done!
-    res.sendStatus(200)
+    // the invoice didn't process fully :(
+    console.log('error occurred with lnInvoice')
+    res.sendStatus(404)
     return
   }
-
-  // the invoice didn't process fully :(
-  console.log('error occurred with lnInvoice')
-  res.sendStatus(404)
-  return
-})
 
 const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoiceId) => {
   const amountSats = Math.round(parseInt(milliSatAmount, 10) / 1000)
@@ -1816,6 +1966,80 @@ const addInvoice = async (db, storeId, invoiceId, isProcessing, isProcessed) => 
     )
   } catch {
     return false
+  }
+}
+
+const updateInvoiceBullPayOrderId = async (db, storeId, invoiceId, bullPayOrderId) => {
+  try {
+    // First, try to update existing record
+    const updateResult = await db.run(
+      "UPDATE invoices SET bullPayOrderId = ? WHERE storeId = ? AND invoiceId = ?",
+      [bullPayOrderId, storeId, invoiceId]
+    )
+    
+    // If no rows were updated, create a new record
+    if (updateResult.changes === 0) {
+      console.log('No existing invoice record found, creating new one')
+      const insertResult = await db.run(
+        "INSERT INTO invoices (storeId, invoiceId, isProcessing, isProcessed, bullPayOrderId) VALUES (?, ?, ?, ?, ?)",
+        [storeId, invoiceId, false, false, bullPayOrderId]
+      )
+      return insertResult.changes > 0
+    }
+    
+    return updateResult.changes > 0
+  } catch (error) {
+    console.error('Error updating invoice with bullPayOrderId:', error);
+    return false;
+  }
+}
+
+const updateInvoiceMetadata = async (storeId, invoiceId, metadataUpdates) => {
+  console.log('updating invoice metadata for invoice:', invoiceId, 'with updates:', metadataUpdates)
+  
+  try {
+    // First get current invoice to preserve existing metadata
+    const currentInvoice = await fetchInvoice(storeId, invoiceId)
+    
+    if (!currentInvoice) {
+      console.log('could not fetch current invoice for metadata update')
+      return false
+    }
+    
+    // Preserve ALL existing metadata and only ADD our specific fields
+    const updatedMetadata = {
+      ...currentInvoice.metadata,  // Keep everything that exists
+      ...metadataUpdates           // Only add/update our specific bullPay fields
+    }
+    
+    const response = await fetch(
+      `${btcpayBaseUri}api/v1/stores/${storeId}/invoices/${invoiceId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'token ' + btcpayApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          metadata: updatedMetadata
+        })
+      }
+    )
+
+    if (!response.ok) {
+      console.log('BTCPay invoice update response not ok:', response.status, response.statusText)
+      const errorText = await response.text()
+      console.log('BTCPay invoice update error:', errorText)
+      return false
+    }
+
+    const data = await response.json();
+    console.log('BTCPay invoice metadata updated successfully')
+    
+    return true
+  } catch (error) {
+    console.error('Error updating BTCPay invoice metadata:', error);
+    return false;
   }
 }
 
