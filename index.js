@@ -1909,3 +1909,119 @@ const fetchGetBitcoinJungleUsername = async (username) => {
     return false
   }
 }
+
+const fetchBullPayOrder = async (token, currency, milliSatAmount, invoiceId) => {
+  const amountSats = Math.round(parseInt(milliSatAmount, 10) / 1000)
+  
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654", 
+    method: "createBullpayOrder",
+    params: {
+      amount: amountSats / 100_000_000, // Convert satoshis to BTC
+      currency: currency // CAD, USD, EUR, MXN, ARS, or CRC
+    }
+  });
+  
+  console.log('create bullPay order body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('create bullPay order response', data)
+    
+    if (data.result && data.result.element && data.result.element.orderId) {
+      return data.result.element.orderId;
+    }
+
+    throw new Error('OrderId not found in response');
+  } catch (error) {
+    console.error('Error creating BullPay order:', error);
+    return null;
+  }
+}
+
+const finalizeBullpaySellOrder = async (token, orderId, actualMilliSatsAmount) => {
+  const actualBtcAmount = actualMilliSatsAmount / (100000000 * 1000) // Convert millisats to BTC
+  
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654",
+    method: "finalizeBullpaySellOrder",
+    params: {
+      orderId: orderId,
+      actualAmount: actualBtcAmount
+    }
+  });
+  
+  console.log('finalize bullPay order body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('finalize bullPay order response', data)
+    
+    return data.result ? { success: true } : { success: false };
+  } catch (error) {
+    console.error('Error finalizing BullPay order:', error);
+    return { success: false };
+  }
+}
+
+const getBullPayOrderSummary = async (token, orderId) => {
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "olbANO1Wg3TH3TmNubwCTM2AgLrXHQMSt4xWU_zr-u4=",
+    method: "getOrderSummary",
+    params: {
+      orderId: orderId
+    }
+  });
+  
+  console.log('get bullPay order summary body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('get bullPay order summary response', data)
+    
+    if (data.result) {
+      return data.result;
+    }
+
+    throw new Error('Order summary not found in response');
+  } catch (error) {
+    console.error('Error getting BullPay order summary:', error);
+    return null;
+  }
+}
