@@ -43,3 +43,6 @@ CREATE TABLE tip_payments (
 );
 
 ALTER TABLE stores ADD bullBitcoin TEXT DEFAULT NULL;
+ALTER TABLE stores ADD bullPay TEXT DEFAULT NULL;
+ALTER TABLE stores ADD liquidWalletDescriptor TEXT DEFAULT NULL;
+ALTER TABLE invoices ADD bullPayOrderId TEXT DEFAULT NULL;
