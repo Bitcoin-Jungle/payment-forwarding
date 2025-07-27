@@ -485,9 +485,14 @@ app.post('/addStore', async (req, res) => {
   const tipSplit = req.body.tipSplit
   const bullBitcoin = req.body.bullBitcoin
   const bullPay = req.body.bullPay
+  const liquidWalletDescriptor = req.body.liquidWalletDescriptor
 
   if(bullBitcoin) {
     console.log('bullBitcoin', bullBitcoin)
+  }
+  
+  if(bullPay) {
+    console.log('bullPay', bullPay)
   }
 
   // these are needed but not user editable inputs
@@ -536,6 +541,39 @@ app.post('/addStore', async (req, res) => {
   if(!bitcoinJungleUsername) {
     res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
     return
+  }
+
+  // Validation: store cannot have both bullBitcoin and bullPay
+  if(bullBitcoin && bullPay) {
+    res.status(400).send({success: false, error: true, message: "Store cannot have both bullBitcoin and bullPay configurations"})
+    return
+  }
+
+  // If bullPay is provided, liquidWalletDescriptor is required
+  if(bullPay && !liquidWalletDescriptor) {
+    res.status(400).send({success: false, error: true, message: "liquidWalletDescriptor is required when using bullPay"})
+    return
+  }
+
+  // Validate liquidWalletDescriptor format if provided
+  if(liquidWalletDescriptor) {
+    console.log('Validating liquid wallet descriptor')
+    
+    try {
+      const validationResult = await validateLiquidDescriptor(liquidWalletDescriptor)
+      
+      if(!validationResult || !validationResult.isValid) {
+        const errorMessage = validationResult?.error || "Invalid liquidWalletDescriptor format"
+        res.status(400).send({success: false, error: true, message: errorMessage})
+        return
+      }
+      
+      console.log('Liquid wallet descriptor validation successful')
+    } catch(error) {
+      console.log('Liquid wallet descriptor validation error:', error.message)
+      res.status(400).send({success: false, error: true, message: "Cannot validate liquidWalletDescriptor: " + error.message})
+      return
+    }
   }
 
   if(tipSplit && tipSplit.length) {
@@ -631,7 +669,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // add store to our internal db
-  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin, bullPay)
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor)
 
   if(!newStore) {
     console.log('db error', newStore)
@@ -1759,16 +1797,17 @@ const findStoresByBbUserId = async (db, bbUserId) => {
   }
 }
 
-const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay) => {
+const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor) => {
   try {
     return await db.run(
-      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay) VALUES (?, ?, ?, ?, ?)", 
+      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor) VALUES (?, ?, ?, ?, ?, ?)", 
       [
         storeId,
         rate,
         bitcoinJungleUsername,
         bullBitcoin ? JSON.stringify(bullBitcoin) : null,
         bullPay ? JSON.stringify(bullPay) : null,
+        liquidWalletDescriptor || null,
       ]
     )
   } catch(err) {
