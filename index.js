@@ -101,9 +101,106 @@ app.use((req, res, next) => {
 
 // process the webhook from BTCPay Server
 app.post('/forward', async (req, res) => {
-  console.log('webook post data', req.body)  
+  console.log('webhook post data', req.body)  
 
-  // we only care about settled invoices
+  // Handle Invoice Created for bullPay stores
+  if(req.body.type === "InvoiceCreated") {
+    console.log('processing InvoiceCreated webhook')
+    
+    // fetch store details from the db
+    const store = await getStore(db, req.body.storeId)
+    
+    if(!store) {
+      console.log('no store found for InvoiceCreated')
+      res.sendStatus(404)
+      return
+    }
+    
+    const bullPay = store.bullPay ? JSON.parse(store.bullPay) : null
+    
+    if(bullPay && bullPay.percent && bullPay.currency && bullPay.token) {
+      console.log('processing bullPay order creation for invoice', req.body.invoiceId)
+      
+      try {
+        // Fetch invoice details to get expected Bitcoin amount
+        const invoice = await fetchInvoice(req.body.storeId, req.body.invoiceId)
+        
+        if(!invoice) {
+          console.log('could not fetch invoice details for InvoiceCreated')
+          res.sendStatus(200)
+          return
+        }
+        
+        // Extract expected Bitcoin amount from payment methods
+        const btcPaymentMethod = invoice.checkout?.availablePaymentMethods?.find(
+          pm => pm.cryptoCode === 'BTC'
+        )
+        
+        if(btcPaymentMethod && btcPaymentMethod.amount) {
+          const expectedBtcAmount = parseFloat(btcPaymentMethod.amount)
+          const estimatedBtcToConvert = expectedBtcAmount * (bullPay.percent / 100)
+          const estimatedMilliSatsToConvert = Math.round(estimatedBtcToConvert * 100000000 * 1000)
+          
+          console.log('creating bullPay order for estimated amount:', estimatedBtcToConvert, 'BTC')
+          
+          // Create BullPay order with estimated amount
+          const bullPayOrderId = await fetchBullPayOrder(
+            bullPay.token,
+            bullPay.currency, 
+            estimatedMilliSatsToConvert,
+            req.body.invoiceId
+          )
+          
+          if(bullPayOrderId) {
+            console.log('bullPay order created with orderId:', bullPayOrderId)
+            
+            // Store the orderId in the database for later finalization
+            const updateResult = await updateInvoiceBullPayOrderId(db, req.body.storeId, req.body.invoiceId, bullPayOrderId)
+            
+            if(!updateResult) {
+              console.log('failed to store bullPayOrderId in database')
+            }
+            
+            // Get the initial order summary
+            const initialOrderSummary = await getBullPayOrderSummary(bullPay.token, bullPayOrderId)
+            
+            if(initialOrderSummary) {
+              console.log('got initial bullPay order summary:', initialOrderSummary)
+              
+              // Update BTCPay invoice metadata with initial order summary
+              const metadataUpdate = {
+                bullPayOrderSummary: initialOrderSummary,
+                bullPayOrderId: bullPayOrderId,
+                bullPayStatus: 'created',
+                bullPayCreatedAt: new Date().toISOString()
+              }
+              
+              const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+              
+              if(!metadataUpdateResult) {
+                console.log('failed to update invoice metadata with initial order summary')
+              } else {
+                console.log('successfully updated invoice metadata with initial order summary')
+              }
+            } else {
+              console.log('failed to get initial order summary')
+            }
+          } else {
+            console.log('failed to create bullPay order')
+          }
+        } else {
+          console.log('no BTC payment method found in invoice')
+        }
+      } catch(error) {
+        console.log('error processing bullPay order creation:', error)
+      }
+    }
+    
+    res.sendStatus(200)
+    return
+  }
+
+  // we only care about settled invoices for the rest of the processing
   if(req.body.type !== "InvoiceSettled") {
     console.log('not invoice settled type')
     res.sendStatus(200)
