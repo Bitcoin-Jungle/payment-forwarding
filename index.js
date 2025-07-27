@@ -2430,4 +2430,3 @@ const liquidPayment = async (btcAmount, liquidWalletDescriptor) => {
   // and return the transaction result
   throw new Error('liquidPayment not yet implemented')
 }
-}
