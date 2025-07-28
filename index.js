@@ -101,9 +101,106 @@ app.use((req, res, next) => {
 
 // process the webhook from BTCPay Server
 app.post('/forward', async (req, res) => {
-  console.log('webook post data', req.body)  
+  console.log('webhook post data', req.body)  
 
-  // we only care about settled invoices
+  // Handle Invoice Created for bullPay stores
+  if(req.body.type === "InvoiceCreated") {
+    console.log('processing InvoiceCreated webhook')
+    
+    // fetch store details from the db
+    const store = await getStore(db, req.body.storeId)
+    
+    if(!store) {
+      console.log('no store found for InvoiceCreated')
+      res.sendStatus(404)
+      return
+    }
+    
+    const bullPay = store.bullPay ? JSON.parse(store.bullPay) : null
+    
+    if(bullPay && bullPay.percent && bullPay.currency && bullPay.token) {
+      console.log('processing bullPay order creation for invoice', req.body.invoiceId)
+      
+      try {
+        // Fetch invoice details to get expected Bitcoin amount
+        const invoice = await fetchInvoice(req.body.storeId, req.body.invoiceId)
+        
+        if(!invoice) {
+          console.log('could not fetch invoice details for InvoiceCreated')
+          res.sendStatus(200)
+          return
+        }
+        
+        // Extract expected Bitcoin amount from payment methods
+        const btcPaymentMethod = invoice.checkout?.availablePaymentMethods?.find(
+          pm => pm.cryptoCode === 'BTC'
+        )
+        
+        if(btcPaymentMethod && btcPaymentMethod.amount) {
+          const expectedBtcAmount = parseFloat(btcPaymentMethod.amount)
+          const estimatedBtcToConvert = expectedBtcAmount * (bullPay.percent / 100)
+          const estimatedMilliSatsToConvert = Math.round(estimatedBtcToConvert * 100000000 * 1000)
+          
+          console.log('creating bullPay order for estimated amount:', estimatedBtcToConvert, 'BTC')
+          
+          // Create BullPay order with estimated amount
+          const bullPayOrderId = await fetchBullPayOrder(
+            bullPay.token,
+            bullPay.currency, 
+            estimatedMilliSatsToConvert,
+            req.body.invoiceId
+          )
+          
+          if(bullPayOrderId) {
+            console.log('bullPay order created with orderId:', bullPayOrderId)
+            
+            // Store the orderId in the database for later finalization
+            const updateResult = await updateInvoiceBullPayOrderId(db, req.body.storeId, req.body.invoiceId, bullPayOrderId)
+            
+            if(!updateResult) {
+              console.log('failed to store bullPayOrderId in database')
+            }
+            
+            // Get the initial order summary
+            const initialOrderSummary = await getBullPayOrderSummary(bullPay.token, bullPayOrderId)
+            
+            if(initialOrderSummary) {
+              console.log('got initial bullPay order summary:', initialOrderSummary)
+              
+              // Update BTCPay invoice metadata with initial order summary
+              const metadataUpdate = {
+                bullPayOrderSummary: initialOrderSummary,
+                bullPayOrderId: bullPayOrderId,
+                bullPayStatus: 'created',
+                bullPayCreatedAt: new Date().toISOString()
+              }
+              
+              const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+              
+              if(!metadataUpdateResult) {
+                console.log('failed to update invoice metadata with initial order summary')
+              } else {
+                console.log('successfully updated invoice metadata with initial order summary')
+              }
+            } else {
+              console.log('failed to get initial order summary')
+            }
+          } else {
+            console.log('failed to create bullPay order')
+          }
+        } else {
+          console.log('no BTC payment method found in invoice')
+        }
+      } catch(error) {
+        console.log('error processing bullPay order creation:', error)
+      }
+    }
+    
+    res.sendStatus(200)
+    return
+  }
+
+  // we only care about settled invoices for the rest of the processing
   if(req.body.type !== "InvoiceSettled") {
     console.log('not invoice settled type')
     res.sendStatus(200)
@@ -154,6 +251,7 @@ app.post('/forward', async (req, res) => {
   // fetch store details from the db
   const store = await getStore(db, req.body.storeId)
   const bullBitcoin = store.bullBitcoin ? JSON.parse(store.bullBitcoin) : null
+  const bullPay = store.bullPay ? JSON.parse(store.bullPay) : null
 
   if(!store) {
     console.log('no store')
@@ -263,64 +361,213 @@ app.post('/forward', async (req, res) => {
       console.log('error creating bullbitcoin order', e)
     }
   }
+  // NEW: Add bullPay flow after existing bullBitcoin flow
+  else if(bullPay && bullPay.percent && bullPay.currency && bullPay.token) {
+    console.log('we have a bullpay account!')
     
-  console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
-  const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount, req.body.invoiceId)
+    try {
+      // 1. Finalize BullPay order with actual amount
+      const invoiceRecord = await getInvoice(db, req.body.storeId, req.body.invoiceId)
+      
+      if(invoiceRecord && invoiceRecord.bullPayOrderId) {
+        console.log('finalizing bullPay order:', invoiceRecord.bullPayOrderId)
+        
+        const actualBtcToConvert = btcTotal * (bullPay.percent / 100)
+        const actualMilliSatsToConvert = Math.round(actualBtcToConvert * 100000000 * 1000)
+        
+        console.log('finalizing with actual amount:', actualBtcToConvert, 'BTC')
+        
+        const finalizeResult = await finalizeBullpaySellOrder(
+          bullPay.token, 
+          invoiceRecord.bullPayOrderId,
+          actualMilliSatsToConvert
+        )
+        
+        if(finalizeResult && finalizeResult.success) {
+          milliSatAmount -= actualMilliSatsToConvert
+          console.log('bullPay order finalized successfully', actualMilliSatsToConvert, invoiceRecord.bullPayOrderId)
+          
+          // Get the final order summary after finalization
+          const finalOrderSummary = await getBullPayOrderSummary(bullPay.token, invoiceRecord.bullPayOrderId)
+          
+          if(finalOrderSummary) {
+            console.log('got final bullPay order summary:', finalOrderSummary)
+            
+            // Update BTCPay invoice metadata with final order summary
+            const metadataUpdate = {
+              bullPayOrderSummary: finalOrderSummary,
+              bullPayStatus: 'finalized',
+              bullPayFinalizedAt: new Date().toISOString(),
+              bullPayActualAmount: actualBtcToConvert
+            }
+            
+            const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+            
+            if(!metadataUpdateResult) {
+              console.log('failed to update invoice metadata with final order summary')
+            } else {
+              console.log('successfully updated invoice metadata with final order summary')
+            }
+          } else {
+            console.log('failed to get final order summary')
+          }
+        } else {
+          console.log('failed to finalize bullPay order')
+          res.sendStatus(500)
+          return
+        }
+      } else {
+        console.log('no bullPayOrderId found for invoice, cannot finalize')
+        res.sendStatus(500)
+        return
+      }
+      
+      // 2. Send remainder to Liquid descriptor
+      const remainingBtcAmount = milliSatAmount / (100000000 * 1000) // Convert millisats to BTC
+      console.log('sending remaining amount to liquid descriptor:', remainingBtcAmount, 'BTC')
+      
+      const liquidResult = await liquidPayment(remainingBtcAmount, store.liquidWalletDescriptor)
+      
+      if(liquidResult && liquidResult.hash) {
+        console.log('liquid payment confirmed with hash:', liquidResult.hash)
+        
+        // Payment confirmed - mark as processed
+        await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
+        
+        // Store payment record with liquid transaction details
+        await addPayment(
+          db,
+          liquidResult.hash,
+          req.body.storeId,
+          req.body.invoiceId,
+          req.body.timestamp,
+          '0', // No fee retained for bullPay
+          liquidResult.hash,
+          liquidResult.details?.mempoolUrl || null
+        )
+        
+        // Update BTCPay invoice metadata with Cyphernode transaction details
+        const metadataUpdate = {
+          liquidTransaction: liquidResult,
+          liquidTransactionProcessedAt: new Date().toISOString(),
+          liquidTransactionAmount: remainingBtcAmount,
+          bullPayStatus: 'completed'
+        }
+        
+        const metadataUpdateResult = await updateInvoiceMetadata(req.body.storeId, req.body.invoiceId, metadataUpdate)
+        
+        if(!metadataUpdateResult) {
+          console.log('failed to update invoice metadata with liquid transaction details')
+        } else {
+          console.log('successfully updated invoice metadata with liquid transaction details')
+        }
+        
+        // Handle tips for bullPay stores - Note: tips stay in Lightning for now
+        if(tipMilliSatAmount > 0) {
+          const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
 
-  if(ownerLnInvoice) {
-    // we've now forwarded the payment, mark it as such in the db
-    await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
+          let tipLnInvoice, tipUsername
+          for (var i = tipUsernames.length - 1; i >= 0; i--) {
+            tipUsername = tipUsernames[i].bitcoinJungleUsername
+            console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
+            tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
 
-    if(ownerLnInvoice.id) {
-      // store a record of the payment in the db
-      await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+            if(tipLnInvoice) {
+              // store a record of the payment in the db
+              await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+            }
+          }
+        }
+        
+        // send a text message to the store owner for bullPay stores
+        if(req.body.metadata.buyerEmail) {
+          const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
+
+          if(buyerPhone) {
+            try {
+              await twilioClient.messages.create({
+                to: `${buyerPhone}`,
+                from: twilioPhoneNumber,
+                body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta Liquid.`
+              })
+            } catch(e) {
+              console.log('error sending text message', e)
+            }
+          }
+        }
+        
+        console.log('bullPay payment completed successfully', remainingBtcAmount, liquidResult.hash)
+        res.sendStatus(200)
+        return
+      } else {
+        console.log('error occurred with liquid payment', liquidResult)
+        res.sendStatus(404)
+        return
+      }
+    } catch(error) {
+      console.log('error in bullPay processing:', error)
+      res.sendStatus(500)
+      return
     }
-    
-    if(tipMilliSatAmount > 0) {
-      const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
+  } else {
+    // EXISTING flow continues here for non-bull stores...
+    console.log('paying business owner', store.bitcoinJungleUsername, milliSatAmount)
+    const ownerLnInvoice = await payLnurl(store.bitcoinJungleUsername, milliSatAmount, req.body.invoiceId)
 
-      let tipLnInvoice, tipUsername
-      for (var i = tipUsernames.length - 1; i >= 0; i--) {
-        tipUsername = tipUsernames[i].bitcoinJungleUsername
-        console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
-        tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
+    if(ownerLnInvoice) {
+      // we've now forwarded the payment, mark it as such in the db
+      await setInvoiceProcessed(db, req.body.storeId, req.body.invoiceId)
 
-        if(tipLnInvoice) {
-          // store a record of the payment in the db
-          await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+      if(ownerLnInvoice.id) {
+        // store a record of the payment in the db
+        await addPayment(db, ownerLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, feeRetainedMilliSatoshis)
+      }
+      
+      if(tipMilliSatAmount > 0) {
+        const perUserTipMilliSatAmount = Math.floor( (tipMilliSatAmount / tipUsernames.length) / 1000 ) * 1000
+
+        let tipLnInvoice, tipUsername
+        for (var i = tipUsernames.length - 1; i >= 0; i--) {
+          tipUsername = tipUsernames[i].bitcoinJungleUsername
+          console.log('paying out tip to ', tipUsername, perUserTipMilliSatAmount)
+          tipLnInvoice = await payLnurl(tipUsername, perUserTipMilliSatAmount, req.body.invoiceId)
+
+          if(tipLnInvoice) {
+            // store a record of the payment in the db
+            await addTipPayment(db, tipLnInvoice.id, req.body.storeId, req.body.invoiceId, req.body.timestamp, tipUsername, perUserTipMilliSatAmount)
+          }
         }
       }
-    }
 
-    // send a text message to the store owner
-    if(req.body.metadata.buyerEmail) {
-      const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
+      // send a text message to the store owner
+      if(req.body.metadata.buyerEmail) {
+        const buyerPhone = req.body.metadata.buyerEmail.split("@")[0]
 
-      if(buyerPhone) {
-        try {
-          await twilioClient.messages.create({
-            to: `${buyerPhone}`,
-            from: twilioPhoneNumber,
-            body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
-          })
-        } catch(e) {
-          console.log('error sending text message', e)
+        if(buyerPhone) {
+          try {
+            await twilioClient.messages.create({
+              to: `${buyerPhone}`,
+              from: twilioPhoneNumber,
+              body: `Se ha recibido y enviado un pago de Foood App al monto de ${invoice.amount} ${invoice.currency} a su cuenta bancaria por SINPE.`
+            })
+          } catch(e) {
+            console.log('error sending text message', e)
+          }
         }
       }
+
+      console.log('payment succeded, marked as processed, all done')
+
+      // we're done!
+      res.sendStatus(200)
+      return
     }
 
-    console.log('payment succeded, marked as processed, all done')
-
-    // we're done!
-    res.sendStatus(200)
+    // the invoice didn't process fully :(
+    console.log('error occurred with lnInvoice')
+    res.sendStatus(404)
     return
   }
-
-  // the invoice didn't process fully :(
-  console.log('error occurred with lnInvoice')
-  res.sendStatus(404)
-  return
-})
 
 const fetchBullBitcoinOrder = async (token, recipientId, milliSatAmount, invoiceId) => {
   const amountSats = Math.round(parseInt(milliSatAmount, 10) / 1000)
@@ -484,9 +731,15 @@ app.post('/addStore', async (req, res) => {
   const bitcoinJungleUsername = req.body.bitcoinJungleUsername
   const tipSplit = req.body.tipSplit
   const bullBitcoin = req.body.bullBitcoin
+  const bullPay = req.body.bullPay
+  const liquidWalletDescriptor = req.body.liquidWalletDescriptor
 
   if(bullBitcoin) {
     console.log('bullBitcoin', bullBitcoin)
+  }
+  
+  if(bullPay) {
+    console.log('bullPay', bullPay)
   }
 
   // these are needed but not user editable inputs
@@ -535,6 +788,39 @@ app.post('/addStore', async (req, res) => {
   if(!bitcoinJungleUsername) {
     res.status(400).send({success: false, error: true, message: "bitcoinJungleUsername is required"})
     return
+  }
+
+  // Validation: store cannot have both bullBitcoin and bullPay
+  if(bullBitcoin && bullPay) {
+    res.status(400).send({success: false, error: true, message: "Store cannot have both bullBitcoin and bullPay configurations"})
+    return
+  }
+
+  // If bullPay is provided, liquidWalletDescriptor is required
+  if(bullPay && !liquidWalletDescriptor) {
+    res.status(400).send({success: false, error: true, message: "liquidWalletDescriptor is required when using bullPay"})
+    return
+  }
+
+  // Validate liquidWalletDescriptor format if provided
+  if(liquidWalletDescriptor) {
+    console.log('Validating liquid wallet descriptor')
+    
+    try {
+      const validationResult = await validateLiquidDescriptor(liquidWalletDescriptor)
+      
+      if(!validationResult || !validationResult.isValid) {
+        const errorMessage = validationResult?.error || "Invalid liquidWalletDescriptor format"
+        res.status(400).send({success: false, error: true, message: errorMessage})
+        return
+      }
+      
+      console.log('Liquid wallet descriptor validation successful')
+    } catch(error) {
+      console.log('Liquid wallet descriptor validation error:', error.message)
+      res.status(400).send({success: false, error: true, message: "Cannot validate liquidWalletDescriptor: " + error.message})
+      return
+    }
   }
 
   if(tipSplit && tipSplit.length) {
@@ -630,7 +916,7 @@ app.post('/addStore', async (req, res) => {
   })
 
   // add store to our internal db
-  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin)
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor)
 
   if(!newStore) {
     console.log('db error', newStore)
@@ -1536,7 +1822,7 @@ const getStore = async (db, storeId) => {
 const getBbStores = async (db) => {
   try {
     return await db.all(
-      "SELECT * FROM stores WHERE bullBitcoin is not null", 
+      "SELECT * FROM stores WHERE bullBitcoin is not null OR bullPay is not null", 
     )
   } catch {
     return false
@@ -1553,15 +1839,20 @@ const refreshBbTokens = async () => {
   }
 
   for(const bbStore of bbStores) {
-    console.log("refreshing bb token for store", bbStore.storeId)
+    console.log("refreshing token for store", bbStore.storeId)
 
-    const bullBitcoin = JSON.parse(bbStore.bullBitcoin)
-
-    if(bullBitcoin && bullBitcoin.token) {
+    // Handle both bullBitcoin and bullPay configurations
+    const bullBitcoin = bbStore.bullBitcoin ? JSON.parse(bbStore.bullBitcoin) : null
+    const bullPay = bbStore.bullPay ? JSON.parse(bbStore.bullPay) : null
+    
+    const configToRefresh = bullBitcoin || bullPay
+    const configType = bullBitcoin ? 'bullBitcoin' : 'bullPay'
+    
+    if(configToRefresh && configToRefresh.token) {
       const headers = {
         'content-type': 'application/json; charset=utf-8',
-        'Authorization': 'Bearer ' + bullBitcoin.token,
-        'Cookie': 'bb_session_last_refreshed=' + bullBitcoin.bb_session_last_refreshed,
+        'Authorization': 'Bearer ' + configToRefresh.token,
+        'Cookie': 'bb_session_last_refreshed=' + configToRefresh.bb_session_last_refreshed,
       };
 
       const body = JSON.stringify({
@@ -1571,8 +1862,7 @@ const refreshBbTokens = async () => {
         params: {}
       });
 
-      console.log('headers', headers)
-      console.log('body', body)
+      console.log('refreshing token for config type:', configType)
 
       try {
         const response = await fetch(`${bullBitcoinBaseUrl}/api-users`, {
@@ -1581,43 +1871,40 @@ const refreshBbTokens = async () => {
           body: body,
         });
 
-        console.log('resStatus', response.status)
+        const data = await response.json();
+        console.log('refresh token response', data)
 
-        const setCookieHeader = response.headers.get('set-cookie');
-
-        console.log('setCookieHeader', setCookieHeader)
-
-        if(setCookieHeader) {
-          // Split the cookies and find the one for 'bb_session_last_refreshed'
-          const cookies = setCookieHeader.split(';');
-          const bbSessionCookie = cookies.find(cookie => cookie.trim().startsWith('bb_session_last_refreshed='));
-
-          if (bbSessionCookie) {
-            console.log('new bbSessionCookie', bbSessionCookie)
-            // Extract the value
-            const bbSessionValue = bbSessionCookie.replace('bb_session_last_refreshed=', '')
-            console.log('new bb_session_last_refreshed value:', bbSessionValue);
-
-            // Update the store with the new bb_session_last_refreshed value
-            await db.run(
-              "UPDATE stores SET bullBitcoin = ? WHERE id = ?",
-              [
-                JSON.stringify({
-                  ...bullBitcoin,
-                  bb_session_last_refreshed: bbSessionValue
-                }),
-                bbStore.id
-              ]
-            )
+        if(data.result) {
+          // Extract the new session value from response headers
+          const setCookieHeader = response.headers.get('set-cookie');
+          let newSessionValue = configToRefresh.bb_session_last_refreshed;
+          
+          if(setCookieHeader && setCookieHeader.includes('bb_session_last_refreshed=')) {
+            const match = setCookieHeader.match(/bb_session_last_refreshed=([^;]+)/);
+            if(match) {
+              newSessionValue = match[1];
+            }
           }
+
+          // Update the appropriate field (bullBitcoin or bullPay) with refreshed token info
+          const updateQuery = `UPDATE stores SET ${configType} = ? WHERE id = ?`;
+          await db.run(updateQuery, [
+            JSON.stringify({
+              ...configToRefresh,
+              bb_session_last_refreshed: newSessionValue
+            }),
+            bbStore.id
+          ]);
+          
+          console.log(`Successfully refreshed ${configType} token for store ${bbStore.storeId}`)
+        } else {
+          console.log(`Failed to refresh ${configType} token for store ${bbStore.storeId}:`, data)
         }
-      } catch (error) {
-        console.error('Error refrehsing bbToken:', error);
+      } catch(error) {
+        console.log(`Error refreshing ${configType} token for store ${bbStore.storeId}:`, error)
       }
     }
   }
-
-  console.log('done refreshing bb tokens for x bb stores', bbStores ? bbStores.length : 0)
 }
 
 setInterval(refreshBbTokens, 1000 * 60 * 60 * 24)
@@ -1682,6 +1969,80 @@ const addInvoice = async (db, storeId, invoiceId, isProcessing, isProcessed) => 
   }
 }
 
+const updateInvoiceBullPayOrderId = async (db, storeId, invoiceId, bullPayOrderId) => {
+  try {
+    // First, try to update existing record
+    const updateResult = await db.run(
+      "UPDATE invoices SET bullPayOrderId = ? WHERE storeId = ? AND invoiceId = ?",
+      [bullPayOrderId, storeId, invoiceId]
+    )
+    
+    // If no rows were updated, create a new record
+    if (updateResult.changes === 0) {
+      console.log('No existing invoice record found, creating new one')
+      const insertResult = await db.run(
+        "INSERT INTO invoices (storeId, invoiceId, isProcessing, isProcessed, bullPayOrderId) VALUES (?, ?, ?, ?, ?)",
+        [storeId, invoiceId, false, false, bullPayOrderId]
+      )
+      return insertResult.changes > 0
+    }
+    
+    return updateResult.changes > 0
+  } catch (error) {
+    console.error('Error updating invoice with bullPayOrderId:', error);
+    return false;
+  }
+}
+
+const updateInvoiceMetadata = async (storeId, invoiceId, metadataUpdates) => {
+  console.log('updating invoice metadata for invoice:', invoiceId, 'with updates:', metadataUpdates)
+  
+  try {
+    // First get current invoice to preserve existing metadata
+    const currentInvoice = await fetchInvoice(storeId, invoiceId)
+    
+    if (!currentInvoice) {
+      console.log('could not fetch current invoice for metadata update')
+      return false
+    }
+    
+    // Preserve ALL existing metadata and only ADD our specific fields
+    const updatedMetadata = {
+      ...currentInvoice.metadata,  // Keep everything that exists
+      ...metadataUpdates           // Only add/update our specific bullPay fields
+    }
+    
+    const response = await fetch(
+      `${btcpayBaseUri}api/v1/stores/${storeId}/invoices/${invoiceId}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'token ' + btcpayApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          metadata: updatedMetadata
+        })
+      }
+    )
+
+    if (!response.ok) {
+      console.log('BTCPay invoice update response not ok:', response.status, response.statusText)
+      const errorText = await response.text()
+      console.log('BTCPay invoice update error:', errorText)
+      return false
+    }
+
+    const data = await response.json();
+    console.log('BTCPay invoice metadata updated successfully')
+    
+    return true
+  } catch (error) {
+    console.error('Error updating BTCPay invoice metadata:', error);
+    return false;
+  }
+}
+
 const setInvoiceProcessed = async (db, storeId, invoiceId) => {
   try {
     return await db.run(
@@ -1734,24 +2095,40 @@ const addTipPayment = async(db, paymentId, storeId, invoiceId, timestamp, bitcoi
 
 const findStoresByBbUserId = async (db, bbUserId) => {
   try {
-    return await db.all(
+    // Check both bullBitcoin and bullPay configurations
+    const bullBitcoinStores = await db.all(
       "SELECT * FROM stores WHERE json_extract(bullBitcoin, '$.userId') = ?",
       [bbUserId]
     )
+    
+    const bullPayStores = await db.all(
+      "SELECT * FROM stores WHERE json_extract(bullPay, '$.userId') = ?",
+      [bbUserId]
+    )
+    
+    // Combine results and remove duplicates
+    const allStores = [...bullBitcoinStores, ...bullPayStores]
+    const uniqueStores = allStores.filter((store, index, self) => 
+      index === self.findIndex(s => s.id === store.id)
+    )
+    
+    return uniqueStores
   } catch {
     return false
   }
 }
 
-const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin) => {
+const addStore = async(db, storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor) => {
   try {
     return await db.run(
-      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin) VALUES (?, ?, ?, ?)", 
+      "INSERT INTO stores (storeId, rate, bitcoinJungleUsername, bullBitcoin, bullPay, liquidWalletDescriptor) VALUES (?, ?, ?, ?, ?, ?)", 
       [
         storeId,
         rate,
         bitcoinJungleUsername,
         bullBitcoin ? JSON.stringify(bullBitcoin) : null,
+        bullPay ? JSON.stringify(bullPay) : null,
+        liquidWalletDescriptor || null,
       ]
     )
   } catch(err) {
@@ -1908,4 +2285,149 @@ const fetchGetBitcoinJungleUsername = async (username) => {
     console.log('fetchGetBitcoinJungleUsername fail', err)
     return false
   }
+}
+
+const fetchBullPayOrder = async (token, currency, milliSatAmount, invoiceId) => {
+  const amountSats = Math.round(parseInt(milliSatAmount, 10) / 1000)
+  
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654", 
+    method: "createBullpayOrder",
+    params: {
+      amount: amountSats / 100_000_000, // Convert satoshis to BTC
+      currency: currency // CAD, USD, EUR, MXN, ARS, or CRC
+    }
+  });
+  
+  console.log('create bullPay order body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('create bullPay order response', data)
+    
+    if (data.result && data.result.element && data.result.element.orderId) {
+      return data.result.element.orderId;
+    }
+
+    throw new Error('OrderId not found in response');
+  } catch (error) {
+    console.error('Error creating BullPay order:', error);
+    return null;
+  }
+}
+
+const finalizeBullpaySellOrder = async (token, orderId, actualMilliSatsAmount) => {
+  const actualBtcAmount = actualMilliSatsAmount / (100000000 * 1000) // Convert millisats to BTC
+  
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "654",
+    method: "finalizeBullpaySellOrder",
+    params: {
+      orderId: orderId,
+      actualAmount: actualBtcAmount
+    }
+  });
+  
+  console.log('finalize bullPay order body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('finalize bullPay order response', data)
+    
+    return data.result ? { success: true } : { success: false };
+  } catch (error) {
+    console.error('Error finalizing BullPay order:', error);
+    return { success: false };
+  }
+}
+
+const getBullPayOrderSummary = async (token, orderId) => {
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'Authorization': 'Bearer ' + token,
+  };
+
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: "olbANO1Wg3TH3TmNubwCTM2AgLrXHQMSt4xWU_zr-u4=",
+    method: "getOrderSummary",
+    params: {
+      orderId: orderId
+    }
+  });
+  
+  console.log('get bullPay order summary body', body)
+
+  try {
+    const response = await fetch(`${bullBitcoinBaseUrl}/api-orders`, {
+      method: 'POST',
+      headers: headers,
+      body: body,
+    });
+
+    const data = await response.json();
+    console.log('get bullPay order summary response', data)
+    
+    if (data.result) {
+      return data.result;
+    }
+
+    throw new Error('Order summary not found in response');
+  } catch (error) {
+    console.error('Error getting BullPay order summary:', error);
+    return null;
+  }
+}
+
+// TODO: Implement these functions for Liquid wallet integration:
+
+// validateLiquidDescriptor function should:
+// - Accept: liquidWalletDescriptor (string)
+// - Validate the descriptor format via Cyphernode API call
+// - Return: { isValid: boolean, error: string|null }
+// - API endpoint: POST to Cyphernode validateLiquidDescriptor
+// - Expected API response: { "valid": true } or { "valid": false, "error": "message" }
+const validateLiquidDescriptor = async (liquidWalletDescriptor) => {
+  // TODO: Implement Cyphernode API call to validate liquid descriptor
+  // This function should call the Cyphernode API to validate the descriptor format
+  // and return the validation result
+  throw new Error('validateLiquidDescriptor not yet implemented')
+}
+
+// liquidPayment function should:
+// - Accept: btcAmount (number), liquidWalletDescriptor (string)
+// - Send Bitcoin to the Liquid wallet descriptor via Cyphernode API call
+// - Return: result object with hash if successful, null if failed
+// - API endpoint: POST to Cyphernode spendToLiquidDescriptor  
+// - Expected API response: { "status": "accepted", "hash": "txid", "details": {...} }
+const liquidPayment = async (btcAmount, liquidWalletDescriptor) => {
+  // TODO: Implement Cyphernode API call to send Bitcoin to liquid descriptor
+  // This function should call the Cyphernode API to spend Bitcoin to the descriptor
+  // and return the transaction result
+  throw new Error('liquidPayment not yet implemented')
+}
 }
