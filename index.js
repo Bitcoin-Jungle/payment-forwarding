@@ -672,7 +672,7 @@ app.post('/addStore', async (req, res) => {
   const emailSent = await sendEmail(storeOwnerEmail)
 
   // we're done!
-  res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerApp.id})
+  res.status(200).send({success: true, error: false, btcPayServerAppId: btcPayServerApp.id, btcPayServerStoreId: store.id})
   return
 })
 
