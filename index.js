@@ -9,7 +9,7 @@ import { authenticatedLndGrpc } from 'lightning'
 import sgMail from '@sendgrid/mail'
 import twilio from 'twilio'
 import { calculateBtcTotal } from './payment-utils.js'
-import { updateStorePaymentMethod } from './btcpay-v2-api.js'
+import { hasStoreOwner, updateStorePaymentMethod } from './btcpay-v2-api.js'
 // set all the env vars
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
@@ -589,7 +589,8 @@ app.post('/addStore', async (req, res) => {
     userId: user.id,
   })
 
-  if(!userStore) {
+  const storeUsers = userStore ? [] : await fetchGetStoreUsers(store.id)
+  if(!userStore && !hasStoreOwner(storeUsers, user.id)) {
     res.status(502).send({success: false, error: true, message: "error happened attaching user to store in API"})
     return
   }
@@ -1350,6 +1351,28 @@ const fetchCreateUserStore = async (data) => {
     return true
   } catch (err) {
     console.log('fetchCreateUserStore fail', err)
+    return false
+  }
+}
+
+const fetchGetStoreUsers = async (storeId) => {
+  try {
+    const response = await fetch(
+      btcpayBaseUri + "api/v1/stores/" + storeId + "/users",
+      {
+        headers: {
+          "Authorization": "token " + btcpayApiKey,
+          "Content-Type": "application/json",
+        }
+      }
+    )
+
+    if (!response.ok) {
+      return false
+    }
+    return await response.json()
+  } catch (err) {
+    console.log('fetchGetStoreUsers fail', err)
     return false
   }
 }

@@ -28,3 +28,14 @@ export const updateStorePaymentMethod = async ({
     return false
   }
 }
+
+export const hasStoreOwner = (storeUsers, userId) => {
+  if (!Array.isArray(storeUsers)) {
+    return false
+  }
+
+  return storeUsers.some(storeUser =>
+    (storeUser.id === userId || storeUser.userId === userId) &&
+    (storeUser.storeRole === 'Owner' || storeUser.role === 'Owner')
+  )
+}

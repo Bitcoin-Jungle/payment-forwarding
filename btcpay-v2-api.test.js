@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { updateStorePaymentMethod } from './btcpay-v2-api.js'
+import { hasStoreOwner, updateStorePaymentMethod } from './btcpay-v2-api.js'
 
 const cases = [
   {
@@ -55,4 +55,16 @@ test('reports a rejected BTCPay update as failure', async () => {
   })
 
   assert.equal(result, false)
+})
+
+test('recognizes an existing v2.4 store owner', () => {
+  assert.equal(hasStoreOwner([{ id: 'user-id', storeRole: 'Owner' }], 'user-id'), true)
+})
+
+test('keeps compatibility with legacy store-user fields', () => {
+  assert.equal(hasStoreOwner([{ userId: 'user-id', role: 'Owner' }], 'user-id'), true)
+})
+
+test('does not accept a non-owner membership', () => {
+  assert.equal(hasStoreOwner([{ id: 'user-id', storeRole: 'Manager' }], 'user-id'), false)
 })
