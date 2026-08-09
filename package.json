@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "node --test payment-utils.test.js",
+    "test": "node --test *.test.js",
     "start": "node index.js"
   },
   "author": "",

@@ -9,6 +9,7 @@ import { authenticatedLndGrpc } from 'lightning'
 import sgMail from '@sendgrid/mail'
 import twilio from 'twilio'
 import { calculateBtcTotal } from './payment-utils.js'
+import { updateStorePaymentMethod } from './btcpay-v2-api.js'
 // set all the env vars
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
@@ -492,7 +493,7 @@ app.post('/addStore', async (req, res) => {
 
   // these are needed but not user editable inputs
   const paymentTolerance = 1
-  const defaultPaymentMethod = "BTC_LightningNetwork"
+  const defaultPaymentMethod = "BTC-LN"
   const customLogo = defaultLogoUri
   const customCSS = defaultCssUri
   const webhookUrl = btcpayBaseUri + "forward"
@@ -563,7 +564,7 @@ app.post('/addStore', async (req, res) => {
     customCSS,
   })
 
-  if(!store.id) {
+  if(!store || !store.id) {
     res.status(400).send({success: false, error: true, message: "error happened creating store in API"})
     return
   }
@@ -573,10 +574,10 @@ app.post('/addStore', async (req, res) => {
     storeOwnerEmail,
   })
 
-  if(!user.id) {
+  if(!user || !user.id) {
     user = await fetchGetUser(storeOwnerEmail)
 
-    if(!user.id) {
+    if(!user || !user.id) {
       res.status(400).send({success: false, error: true, message: "error happened creating user in API"})
       return
     }
@@ -587,6 +588,11 @@ app.post('/addStore', async (req, res) => {
     storeId: store.id,
     userId: user.id,
   })
+
+  if(!userStore) {
+    res.status(502).send({success: false, error: true, message: "error happened attaching user to store in API"})
+    return
+  }
 
   // attach webhook to store via api
   const webhook = await fetchCreateWebhook({
@@ -614,6 +620,11 @@ app.post('/addStore', async (req, res) => {
     enabled: true,
   })
 
+  if(!lnPaymentMethod || lnPaymentMethod.paymentMethodId !== "BTC-LN" || !lnPaymentMethod.enabled) {
+    res.status(502).send({success: false, error: true, message: "error happened configuring Lightning payment method in API"})
+    return
+  }
+
   const lnUrlPaymentMethod = await fetchCreateLnUrlPaymentMethod({
     storeId: store.id,
     cryptoCode: "BTC",
@@ -621,6 +632,11 @@ app.post('/addStore', async (req, res) => {
     useBech32Scheme: true,
     lud12Enabled: false,
   })
+
+  if(!lnUrlPaymentMethod || lnUrlPaymentMethod.paymentMethodId !== "BTC-LNURL" || !lnUrlPaymentMethod.enabled) {
+    res.status(502).send({success: false, error: true, message: "error happened configuring LNURL payment method in API"})
+    return
+  }
 
   // create on-chain payment method via API
   const onChainPaymentMethod = await fetchCreateOnChainPaymentMethod({
@@ -630,18 +646,19 @@ app.post('/addStore', async (req, res) => {
     derivationScheme: onChainZpub,
   })
 
-  // add store to our internal db
-  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin)
-
-  if(!newStore) {
-    console.log('db error', newStore)
-    res.status(500).send({success: false, error: true, message: "error writing to db"})
+  if(!onChainPaymentMethod || onChainPaymentMethod.paymentMethodId !== "BTC-CHAIN" || !onChainPaymentMethod.enabled) {
+    res.status(502).send({success: false, error: true, message: "error happened configuring on-chain payment method in API"})
     return
   }
 
   // update store rate script for CRC support
   const rateScript = `BTC_CRC = bitcoinjungle(BTC_CRC);\nBTC_USD = bitcoinjungle(BTC_USD);`
   const btcPayServerRate = await updateBtcPayServerRate(store.id, rateScript)
+
+  if(!btcPayServerRate || !btcPayServerRate.effectiveScript) {
+    res.status(502).send({success: false, error: true, message: "error happened configuring store rates in API"})
+    return
+  }
 
   // customize the Data we need for the App
   let btcPayServerAppData = {
@@ -659,7 +676,26 @@ app.post('/addStore', async (req, res) => {
   // create the App record in the btcpayserver db
   const btcPayServerApp = await createBtcPayServerApp(store.id, btcPayServerAppData)
 
+  if(!btcPayServerApp || !btcPayServerApp.id) {
+    res.status(502).send({success: false, error: true, message: "error happened creating Point of Sale app in API"})
+    return
+  }
+
+  // Record the store internally only after all BTCPay provisioning succeeded.
+  const newStore = await addStore(db, store.id, rate, bitcoinJungleUsername, bullBitcoin)
+
+  if(!newStore) {
+    console.log('db error', newStore)
+    res.status(500).send({success: false, error: true, message: "error writing to db"})
+    return
+  }
+
   const storeApp = await setStoreAppId(db, store.id, btcPayServerApp.id)
+
+  if(!storeApp) {
+    res.status(500).send({success: false, error: true, message: "error writing Point of Sale app to db"})
+    return
+  }
 
   if(tipSplit && tipSplit.length) {
     const internalStore = await getStore(db, store.id)
@@ -1092,11 +1128,10 @@ const fetchCreateStore = async (data) => {
           defaultLang: data.defaultLanguage,
           paymentTolerance: data.paymentTolerance,
           defaultPaymentMethod: data.defaultPaymentMethod,
-          customLogo: data.customLogo,
-          customCSS: data.customCSS,
+          logoUrl: data.customLogo,
+          cssUrl: data.customCSS,
           lightningAmountInSatoshi: true,
 
-          checkoutType: "V2",
           celebratePayment: true,
           showStoreHeader: true,
           showPayInWalletButton: false,
@@ -1297,8 +1332,8 @@ const fetchCreateUserStore = async (data) => {
       {
         method: "post",
         body: JSON.stringify({
-          userId: data.userId,
-          role: "StoreOwner",
+          id: data.userId,
+          storeRole: "Owner",
         }),
         headers: {
           "Authorization": "token " + btcpayApiKey,
@@ -1349,90 +1384,42 @@ const fetchCreateWebhook = async (data) => {
 }
 
 const fetchCreateLnPaymentMethod = async (data) => {
-  try {
-    const response = await fetch(
-      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LightningNetwork/" + data.cryptoCode,
-      {
-        method: "put",
-        body: JSON.stringify({
-          connectionString: data.connectionString,
-          enabled: data.enabled,
-        }),
-        headers: {
-          "Authorization": "token " + btcpayApiKey,
-          "Content-Type": "application/json",
-        }
-      }
-    )
-
-    if (!response.ok) {
-      console.log(response.status, response.statusText)
-      return false
-    }
-    return await response.json()
-  } catch (err) {
-    console.log('fetchCreateLnPaymentMethod fail', err)
-    return false
-  }
+  return updateStorePaymentMethod({
+    fetchImpl: fetch,
+    baseUri: btcpayBaseUri,
+    apiKey: btcpayApiKey,
+    storeId: data.storeId,
+    paymentMethodId: `${data.cryptoCode}-LN`,
+    enabled: data.enabled,
+    config: { connectionString: data.connectionString },
+  })
 }
 
 const fetchCreateLnUrlPaymentMethod = async (data) => {
-  try {
-    const response = await fetch(
-
-      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/LNURLPAY/" + data.cryptoCode,
-      {
-        method: "put",
-        body: JSON.stringify({
-          useBech32Scheme: data.useBech32Scheme,
-          lud12Enabled: data.lud12Enabled,
-          enabled: data.enabled,
-        }),
-        headers: {
-          "Authorization": "token " + btcpayApiKey,
-          "Content-Type": "application/json",
-        }
-      }
-    )
-
-    if (!response.ok) {
-      console.log(response.status, response.statusText)
-      return false
-    }
-    return await response.json()
-  } catch (err) {
-    console.log('fetchCreateLnUrlPaymentMethod fail', err)
-    return false
-  }
+  return updateStorePaymentMethod({
+    fetchImpl: fetch,
+    baseUri: btcpayBaseUri,
+    apiKey: btcpayApiKey,
+    storeId: data.storeId,
+    paymentMethodId: `${data.cryptoCode}-LNURL`,
+    enabled: data.enabled,
+    config: {
+      useBech32Scheme: data.useBech32Scheme,
+      lud12Enabled: data.lud12Enabled,
+    },
+  })
 }
 
 const fetchCreateOnChainPaymentMethod = async (data) => {
-  try {
-    const response = await fetch(
-      btcpayBaseUri + "api/v1/stores/" + data.storeId + "/payment-methods/onchain/" + data.cryptoCode,
-      {
-        method: "put",
-        body: JSON.stringify({
-          enabled: data.enabled,
-          derivationScheme: data.derivationScheme,
-          label: "BJ Electrum",
-        }),
-        headers: {
-          "Authorization": "token " + btcpayApiKey,
-          "Content-Type": "application/json",
-        }
-      }
-    )
-
-    if (!response.ok) {
-      console.log(response.status, response.statusText)
-      return false
-    }
-    return await response.json()
-  } catch (err) {
-    console.log('fetchCreateOnChainPaymentMethod fail', err)
-    return false
-  }
+  return updateStorePaymentMethod({
+    fetchImpl: fetch,
+    baseUri: btcpayBaseUri,
+    apiKey: btcpayApiKey,
+    storeId: data.storeId,
+    paymentMethodId: `${data.cryptoCode}-CHAIN`,
+    enabled: data.enabled,
+    config: data.derivationScheme,
+  })
 }
 
 const fetchInvoicePayments = async (storeId, invoiceId) => {
