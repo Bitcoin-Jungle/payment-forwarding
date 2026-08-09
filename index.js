@@ -8,6 +8,7 @@ import { pay } from 'ln-service'
 import { authenticatedLndGrpc } from 'lightning'
 import sgMail from '@sendgrid/mail'
 import twilio from 'twilio'
+import { calculateBtcTotal } from './payment-utils.js'
 // set all the env vars
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
@@ -180,17 +181,17 @@ app.post('/forward', async (req, res) => {
   // fetch invoice payments from btcpayserver
   const payments = await fetchInvoicePayments(req.body.storeId, req.body.invoiceId)
 
-  // calculate the total BTC paid on the invoice
-  let btcTotal = 0
-
-  payments.forEach(el => {
-    // we only deal with BTC in this script
-    if(el.cryptoCode == "BTC") {
-      el.payments.forEach(el2 => {
-        btcTotal += parseFloat(el2.value)
-      })
-    }
-  })
+  // Calculate the total BTC paid on the invoice. Fail closed if BTCPay's
+  // response cannot be understood; never turn an unknown total into 1 sat.
+  let btcTotal
+  try {
+    btcTotal = calculateBtcTotal(payments)
+  } catch (err) {
+    console.log('refusing to forward invoice with invalid BTC payment data', req.body.invoiceId, err.message)
+    await setInvoiceNotProcessing(db, req.body.storeId, req.body.invoiceId)
+    res.sendStatus(500)
+    return
+  }
 
   // calculate the btc total in milli-satoshis
   let milliSatAmount = btcTotal * 100000000 * 1000
@@ -1686,6 +1687,20 @@ const setInvoiceProcessed = async (db, storeId, invoiceId) => {
   try {
     return await db.run(
       "UPDATE invoices SET isProcessing = false, isProcessed = true WHERE storeId = ? AND invoiceId = ?",
+      [
+        storeId,
+        invoiceId,
+      ]
+    )
+  } catch {
+    return false
+  }
+}
+
+const setInvoiceNotProcessing = async (db, storeId, invoiceId) => {
+  try {
+    return await db.run(
+      "UPDATE invoices SET isProcessing = false WHERE storeId = ? AND invoiceId = ?",
       [
         storeId,
         invoiceId,
