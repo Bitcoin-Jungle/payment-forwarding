@@ -39,3 +39,11 @@ export const hasStoreOwner = (storeUsers, userId) => {
     (storeUser.storeRole === 'Owner' || storeUser.role === 'Owner')
   )
 }
+
+const internalOnlyPaths = ['/forward', '/beds24']
+
+export const isInternalOnlyPath = (path) =>
+  internalOnlyPaths.includes(path.toLowerCase().replace(/\/+$/, ''))
+
+export const isLoopbackAddress = (address) =>
+  ['127.0.0.1', '::ffff:127.0.0.1', '::1'].includes(address)

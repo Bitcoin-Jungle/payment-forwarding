@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { hasStoreOwner, updateStorePaymentMethod } from './btcpay-v2-api.js'
+import { isInternalOnlyPath, isLoopbackAddress, hasStoreOwner, updateStorePaymentMethod } from './btcpay-v2-api.js'
 
 const cases = [
   {
@@ -67,4 +67,22 @@ test('keeps compatibility with legacy store-user fields', () => {
 
 test('does not accept a non-owner membership', () => {
   assert.equal(hasStoreOwner([{ id: 'user-id', storeRole: 'Manager' }], 'user-id'), false)
+})
+
+test('webhook receiver paths are internal only regardless of case or trailing slash', () => {
+  for (const path of ['/forward', '/forward/', '/FORWARD', '/beds24', '/Beds24/']) {
+    assert.equal(isInternalOnlyPath(path), true)
+  }
+  for (const path of ['/addStore', '/forwarded', '/tipLnurl/abc']) {
+    assert.equal(isInternalOnlyPath(path), false)
+  }
+})
+
+test('only loopback addresses count as internal', () => {
+  for (const address of ['127.0.0.1', '::ffff:127.0.0.1', '::1']) {
+    assert.equal(isLoopbackAddress(address), true)
+  }
+  for (const address of ['203.0.113.7', '::ffff:203.0.113.7', '198.51.100.7', undefined]) {
+    assert.equal(isLoopbackAddress(address), false)
+  }
 })

@@ -9,7 +9,7 @@ import { authenticatedLndGrpc } from 'lightning'
 import sgMail from '@sendgrid/mail'
 import twilio from 'twilio'
 import { calculateBtcTotal } from './payment-utils.js'
-import { hasStoreOwner, updateStorePaymentMethod } from './btcpay-v2-api.js'
+import { hasStoreOwner, isInternalOnlyPath, isLoopbackAddress, updateStorePaymentMethod } from './btcpay-v2-api.js'
 // set all the env vars
 const port = process.env.port
 const webhookSecret = process.env.webhookSecret
@@ -65,6 +65,16 @@ const {lnd} = authenticatedLndGrpc({
 
 
 app.use('/tipSplit', express.static(`${basePath}/tip-split/build`));
+
+// webhook receivers only accept deliveries from BTCPay Server on this host
+app.use((req, res, next) => {
+  if(isInternalOnlyPath(req.path) && !isLoopbackAddress(req.socket.remoteAddress)) {
+    res.sendStatus(403)
+    return
+  }
+
+  next()
+})
 
 // parse as JSON, but also keep the rawBody for HMAC verification
 app.use(bodyParser.json({
@@ -496,7 +506,7 @@ app.post('/addStore', async (req, res) => {
   const defaultPaymentMethod = "BTC-LN"
   const customLogo = defaultLogoUri
   const customCSS = defaultCssUri
-  const webhookUrl = btcpayBaseUri + "forward"
+  const webhookUrl = `http://127.0.0.1:${port}/forward`
 
   // do the validation
   if(!apiKey) {
@@ -1334,7 +1344,8 @@ const fetchCreateUserStore = async (data) => {
         method: "post",
         body: JSON.stringify({
           id: data.userId,
-          storeRole: "Owner",
+          storeRole: "StoreOwner",
+          requireInvitation: false,
         }),
         headers: {
           "Authorization": "token " + btcpayApiKey,
